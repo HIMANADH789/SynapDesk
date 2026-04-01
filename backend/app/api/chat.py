@@ -1,4 +1,7 @@
+import json
+
 from fastapi import APIRouter, Depends
+from fastapi.responses import StreamingResponse
 
 from app.dependencies import get_embeddings, get_llm, get_vectordb
 from app.models.chat import ChatRequest, ChatResponse, Source
@@ -28,6 +31,37 @@ async def chat_query(
         response=result["response"],
         sources=[Source(**s) for s in result["sources"]],
         session_id=result["session_id"],
+    )
+
+
+@router.post("/{client_id}/stream")
+async def chat_stream(
+    client_id: str,
+    request: ChatRequest,
+    llm: LLMProvider = Depends(get_llm),
+    embeddings: EmbeddingProvider = Depends(get_embeddings),
+    vectordb: VectorStoreProvider = Depends(get_vectordb),
+):
+    """Server-Sent Events endpoint. Streams tokens as they are generated."""
+
+    async def event_generator():
+        async for event in rag_service.query_stream(
+            client_id=client_id,
+            message=request.message,
+            session_id=request.session_id,
+            llm=llm,
+            embeddings=embeddings,
+            vectordb=vectordb,
+        ):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # disable nginx buffering
+        },
     )
 
 

@@ -49,11 +49,14 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
 
-  register: (email: string, password: string, client_id: string) =>
-    request("/auth/register", {
+  register: (email: string, password: string, client_id: string, role = "admin") =>
+    request<{ message: string }>("/auth/register", {
       method: "POST",
-      body: JSON.stringify({ email, password, client_id }),
+      body: JSON.stringify({ email, password, client_id, role }),
     }),
+
+  getSetupStatus: () =>
+    request<{ setup_required: boolean }>("/auth/setup-status"),
 
   // Documents
   uploadDocument: (file: File) => {
@@ -119,4 +122,23 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(settings),
     }),
+
+  // Clients (super-admin)
+  createClient: (data: { client_id: string; name: string; domain?: string; settings?: Record<string, unknown> }) =>
+    request<{ message: string; client_id: string }>("/clients", {
+      method: "POST",
+      body: JSON.stringify({ ...data, settings: data.settings ?? {} }),
+    }),
+
+  // Super-admin analytics
+  superAdminOverview: () =>
+    request<import("@/types").SuperAdminOverview>("/analytics/super-admin/overview"),
+
+  superAdminClientDetail: (clientId: string, page = 1, pageSize = 20) =>
+    request<import("@/types").SuperAdminClientDetail>(
+      `/analytics/super-admin/clients/${clientId}?page=${page}&page_size=${pageSize}`
+    ),
+
+  listClients: () =>
+    request<{ clients: import("@/types").ClientRecord[]; total: number }>("/clients"),
 };

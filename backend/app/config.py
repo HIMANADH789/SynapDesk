@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     GEMINI_RPM_LIMIT: int = 10
     GEMINI_DAILY_LIMIT: int = 250
 
+    # RAG enhancements (all default ON)
+    HYDE_ENABLED: bool = True               # Hypothetical Document Embedding
+    RERANK_ENABLED: bool = True             # Cross-encoder reranking
+    CACHE_ENABLED: bool = True              # Semantic query cache
+    CACHE_SIMILARITY_THRESHOLD: float = 0.92  # Cosine sim threshold for cache hit
+    CACHE_TTL_HOURS: int = 24              # How long cached answers stay valid
+    RETRIEVAL_CANDIDATES: int = 15         # Candidates fetched before reranking
+    RETRIEVAL_TOP_K: int = 4              # Final chunks after reranking
+
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000"
 

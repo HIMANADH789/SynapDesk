@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 
 from app.api.auth import get_current_user
-from app.dependencies import get_embeddings, get_vectordb
-from app.providers.base import EmbeddingProvider, VectorStoreProvider
+from app.dependencies import get_embeddings, get_llm, get_vectordb
+from app.providers.base import EmbeddingProvider, LLMProvider, VectorStoreProvider
 from app.services import document_service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -17,6 +17,7 @@ async def upload_document(
     user: dict = Depends(get_current_user),
     embeddings: EmbeddingProvider = Depends(get_embeddings),
     vectordb: VectorStoreProvider = Depends(get_vectordb),
+    llm: LLMProvider = Depends(get_llm),
 ):
     client_id = user["client_id"]
 
@@ -38,6 +39,7 @@ async def upload_document(
             file_bytes=file_bytes,
             embedding_provider=embeddings,
             vectordb_provider=vectordb,
+            llm_provider=llm,
         )
         return {
             "doc_id": doc["doc_id"],

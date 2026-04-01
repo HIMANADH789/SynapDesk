@@ -30,6 +30,76 @@ function MessageText({ text }: { text: string }) {
   );
 }
 
+/** Animate a chunk character-by-character at ~15ms/char to simulate ChatGPT effect. */
+function animateChunk(text: string, onChar: (ch: string) => void): Promise<void> {
+  return new Promise((resolve) => {
+    let i = 0;
+    function next() {
+      if (i >= text.length) { resolve(); return; }
+      onChar(text[i++]);
+      setTimeout(next, 15);
+    }
+    next();
+  });
+}
+
+/** Consume an SSE stream from /chat/{clientId}/stream and call handlers per event. */
+async function streamChat(
+  clientId: string,
+  message: string,
+  sessionId: string | undefined,
+  onToken: (text: string) => void,
+  onDone: (sessionId: string, sources: Source[]) => void,
+) {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+  // Call backend DIRECTLY — bypasses Next.js rewrite proxy which buffers SSE responses
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const res = await fetch(`${backendUrl}/api/chat/${clientId}/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ message, session_id: sessionId }),
+  });
+
+  if (!res.ok || !res.body) {
+    throw new Error(`Request failed: ${res.status}`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by \n\n
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith("data: ")) continue;
+      try {
+        const event = JSON.parse(line.slice(6));
+        if (event.type === "token") {
+          // Animate each chunk character-by-character for smooth ChatGPT-like effect
+          await animateChunk(event.text as string, onToken);
+        } else if (event.type === "done") {
+          onDone(event.session_id as string, (event.sources as Source[]) ?? []);
+        }
+      } catch {
+        // malformed chunk — skip
+      }
+    }
+  }
+}
+
 export default function ChatTestPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -42,7 +112,6 @@ export default function ChatTestPage() {
     const id = getClientIdFromToken();
     setClientId(id);
 
-    // Load welcome message from client settings
     api.getMyProfile().then((profile) => {
       const s = (profile.client as unknown as { settings?: { welcome_message?: string } })?.settings;
       const welcome = s?.welcome_message ?? "Hello! How can I help you today?";
@@ -62,24 +131,49 @@ export default function ChatTestPage() {
 
     const userMessage = input.trim();
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: userMessage }]);
+
+    // Add user message + empty assistant placeholder
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: userMessage },
+      { role: "assistant", content: "" },
+    ]);
     setLoading(true);
 
     try {
-      const res = await api.chat(clientId, userMessage, sessionId);
-      setSessionId(res.session_id);
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: res.response, sources: res.sources },
-      ]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `Sorry, something went wrong. Please try again.`,
+      await streamChat(
+        clientId,
+        userMessage,
+        sessionId,
+        (chunk) => {
+          // Append token to the last (assistant) message
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            return [
+              ...prev.slice(0, -1),
+              { ...last, content: last.content + chunk },
+            ];
+          });
         },
-      ]);
+        (sid, sources) => {
+          setSessionId(sid);
+          // Attach sources to the last assistant message
+          if (sources.length > 0) {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              return [...prev.slice(0, -1), { ...last, sources }];
+            });
+          }
+        },
+      );
+    } catch {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        return [
+          ...prev.slice(0, -1),
+          { ...last, content: "Sorry, something went wrong. Please try again." },
+        ];
+      });
     } finally {
       setLoading(false);
     }
@@ -94,6 +188,9 @@ export default function ChatTestPage() {
       setMessages([{ role: "assistant", content: welcome }]);
     }).catch(() => {});
   }
+
+  // The last message is the streaming assistant message if loading=true and content may be empty
+  const isStreaming = loading;
 
   return (
     <div className="flex h-full flex-col">
@@ -114,44 +211,52 @@ export default function ChatTestPage() {
 
       <div className="flex-1 overflow-y-auto rounded-xl bg-white p-4 shadow-sm">
         <div className="space-y-4">
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-            >
+          {messages.map((msg, i) => {
+            const isLastAssistant =
+              isStreaming && i === messages.length - 1 && msg.role === "assistant";
+            return (
               <div
-                className={`max-w-[75%] rounded-2xl px-4 py-3 ${
-                  msg.role === "user"
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-100 text-gray-800"
-                }`}
+                key={i}
+                className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
-                <MessageText text={msg.content} />
-                {msg.sources && msg.sources.length > 0 && (
-                  <div className="mt-2 border-t border-gray-200 pt-2">
-                    <p className="text-xs font-medium text-gray-400">Sources:</p>
-                    {msg.sources.map((s: Source, j: number) => (
-                      <p key={j} className="text-xs text-gray-400">
-                        {s.filename}
-                      </p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+                <div
+                  className={`max-w-[75%] rounded-2xl px-4 py-3 ${
+                    msg.role === "user"
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-800"
+                  }`}
+                >
+                  {/* Show typing dots only while waiting for first token */}
+                  {isLastAssistant && msg.content === "" ? (
+                    <div className="flex gap-1 py-0.5">
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400" />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:0.1s]" />
+                      <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:0.2s]" />
+                    </div>
+                  ) : (
+                    <>
+                      <MessageText text={msg.content} />
+                      {/* Blinking cursor while still streaming */}
+                      {isLastAssistant && (
+                        <span className="ml-0.5 inline-block h-3.5 w-0.5 animate-pulse bg-gray-500 align-middle" />
+                      )}
+                    </>
+                  )}
 
-          {loading && (
-            <div className="flex justify-start">
-              <div className="rounded-2xl bg-gray-100 px-4 py-3">
-                <div className="flex gap-1">
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400" />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:0.1s]" />
-                  <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:0.2s]" />
+                  {msg.sources && msg.sources.length > 0 && (
+                    <div className="mt-2 border-t border-gray-200 pt-2">
+                      <p className="text-xs font-medium text-gray-400">Sources:</p>
+                      {msg.sources.map((s: Source, j: number) => (
+                        <p key={j} className="text-xs text-gray-400">
+                          {s.filename}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })}
           <div ref={messagesEndRef} />
         </div>
       </div>

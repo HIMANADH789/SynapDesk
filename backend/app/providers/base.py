@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 from pydantic import BaseModel
 
@@ -19,6 +19,17 @@ class LLMProvider(ABC):
         temperature: float = 0.3,
         max_tokens: int = 1024,
     ) -> LLMResponse: ...
+
+    async def generate_stream(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.3,
+        max_tokens: int = 1024,
+    ) -> AsyncIterator[str]:
+        """Yield text chunks. Default falls back to a single full-response chunk."""
+        response = await self.generate(prompt, system_prompt, temperature, max_tokens)
+        yield response.text
 
     @abstractmethod
     def get_model_name(self) -> str: ...
@@ -52,6 +63,7 @@ class VectorStoreProvider(ABC):
         client_id: str,
         query_embedding: list[float],
         top_k: int = 5,
+        where: Optional[dict] = None,
     ) -> list[dict]: ...
 
     @abstractmethod

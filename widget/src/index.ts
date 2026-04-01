@@ -45,9 +45,16 @@
       flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;
     }
 
-    .msg { max-width: 80%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.5; word-wrap: break-word; }
+    .msg { max-width: 80%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.5; word-wrap: break-word; white-space: pre-wrap; }
     .msg.user { align-self: flex-end; background: ${themeColor}; color: #fff; border-bottom-right-radius: 4px; }
     .msg.bot { align-self: flex-start; background: #f1f5f9; color: #1e293b; border-bottom-left-radius: 4px; }
+
+    .cursor {
+      display: inline-block; width: 2px; height: 14px;
+      background: #64748b; margin-left: 2px; vertical-align: middle;
+      animation: blink 0.8s step-end infinite;
+    }
+    @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
 
     .chat-input {
       padding: 12px 16px; border-top: 1px solid #e2e8f0; display: flex; gap: 8px;
@@ -98,7 +105,6 @@
   // Chat panel
   const panel = document.createElement("div");
   panel.className = "chat-panel";
-
   panel.innerHTML = `
     <div class="chat-header">
       <h3>Chat with us</h3>
@@ -124,26 +130,109 @@
     btn.innerHTML = "💬";
   };
 
-  function addMessage(role: "user" | "bot", text: string) {
+  function addMessage(role: "user" | "bot", text: string): HTMLElement {
     const div = document.createElement("div");
     div.className = `msg ${role}`;
     div.textContent = text;
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
   }
 
-  function showTyping() {
+  function showTyping(): HTMLElement {
     const div = document.createElement("div");
     div.className = "msg bot typing";
     div.innerHTML = "<span></span><span></span><span></span>";
     div.id = "typing-indicator";
     messagesEl.appendChild(div);
     messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
   }
 
-  function hideTyping() {
+  function removeTyping() {
     const el = shadow.getElementById("typing-indicator");
     if (el) el.remove();
+  }
+
+  // Animate a chunk character-by-character for the ChatGPT-like effect
+  function animateChunk(
+    chunk: string,
+    botEl: HTMLElement,
+    cursorEl: HTMLElement
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      let i = 0;
+      function next() {
+        if (i >= chunk.length) { resolve(); return; }
+        botEl.insertBefore(document.createTextNode(chunk[i++]), cursorEl);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        setTimeout(next, 15);
+      }
+      next();
+    });
+  }
+
+  // Streaming send — calls /stream endpoint, animates tokens character-by-character
+  async function sendStreaming(text: string) {
+    const typingEl = showTyping();
+    let botEl: HTMLElement | null = null;
+    let cursorEl: HTMLElement | null = null;
+
+    try {
+      const res = await fetch(`${apiUrl}/api/chat/${clientId}/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, session_id: sessionId }),
+      });
+
+      if (!res.ok || !res.body) throw new Error("Stream failed");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() ?? "";
+
+        for (const part of parts) {
+          const line = part.trim();
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+
+            if (event.type === "token") {
+              // First token — replace typing indicator with real message bubble
+              if (!botEl) {
+                typingEl.remove();
+                botEl = document.createElement("div");
+                botEl.className = "msg bot";
+                cursorEl = document.createElement("span");
+                cursorEl.className = "cursor";
+                messagesEl.appendChild(botEl);
+                botEl.appendChild(cursorEl);
+              }
+              // Animate this chunk character-by-character
+              await animateChunk(event.text as string, botEl, cursorEl!);
+
+            } else if (event.type === "done") {
+              sessionId = event.session_id as string;
+              if (cursorEl) cursorEl.remove();
+            }
+          } catch {
+            // skip malformed chunk
+          }
+        }
+      }
+    } catch {
+      removeTyping();
+      if (!botEl) addMessage("bot", "Sorry, something went wrong. Please try again.");
+      else if (cursorEl) cursorEl.remove();
+    }
   }
 
   formEl.onsubmit = async (e) => {
@@ -155,35 +244,20 @@
     addMessage("user", text);
     loading = true;
     sendBtn.disabled = true;
-    showTyping();
 
-    try {
-      const res = await fetch(`${apiUrl}/api/chat/${clientId}/query`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, session_id: sessionId }),
-      });
-      const data = await res.json();
-      sessionId = data.session_id;
-      hideTyping();
-      addMessage("bot", data.response);
-    } catch {
-      hideTyping();
-      addMessage("bot", "Sorry, something went wrong. Please try again.");
-    } finally {
-      loading = false;
-      sendBtn.disabled = false;
-    }
+    await sendStreaming(text);
+
+    loading = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
   };
 
-  // Load welcome message from client settings, then show it
-  fetch(`${apiUrl}/api/clients/${clientId}`, { method: "GET" })
+  // Load welcome message
+  fetch(`${apiUrl}/api/clients/${clientId}`)
     .then((r) => r.json())
     .then((data) => {
       const welcome = data?.settings?.welcome_message || "Hello! How can I help you today?";
       addMessage("bot", welcome);
     })
-    .catch(() => {
-      addMessage("bot", "Hello! How can I help you today?");
-    });
+    .catch(() => addMessage("bot", "Hello! How can I help you today?"));
 })();

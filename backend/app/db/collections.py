@@ -5,6 +5,7 @@ USERS = "users"
 DOCUMENTS = "documents"
 QUERY_LOGS = "query_logs"
 CHAT_SESSIONS = "chat_sessions"
+QUERY_CACHE = "query_cache"
 
 
 async def create_indexes() -> None:
@@ -19,3 +20,5 @@ async def create_indexes() -> None:
     await db[QUERY_LOGS].create_index("session_id")
     await db[CHAT_SESSIONS].create_index("session_id", unique=True)
     await db[CHAT_SESSIONS].create_index("client_id")
+    await db[QUERY_CACHE].create_index([("client_id", 1), ("created_at", -1)])
+    await db[QUERY_CACHE].create_index("client_id")

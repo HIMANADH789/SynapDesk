@@ -1,6 +1,11 @@
+import logging
+from typing import Optional
+
 import chromadb
 
 from app.providers.base import VectorStoreProvider
+
+logger = logging.getLogger(__name__)
 
 
 class ChromaDBProvider(VectorStoreProvider):
@@ -38,26 +43,44 @@ class ChromaDBProvider(VectorStoreProvider):
         client_id: str,
         query_embedding: list[float],
         top_k: int = 5,
+        where: Optional[dict] = None,
     ) -> list[dict]:
         collection = self._get_or_create_collection(client_id)
-        results = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=top_k,
-            include=["documents", "metadatas", "distances"],
-        )
-        items = []
-        if results["documents"] and results["documents"][0]:
-            for i, doc in enumerate(results["documents"][0]):
-                items.append({
-                    "text": doc,
-                    "metadata": results["metadatas"][0][i] if results["metadatas"] else {},
-                    "score": 1 - results["distances"][0][i] if results["distances"] else 0,
-                })
-        return items
+
+        def _query(w: Optional[dict]) -> list[dict]:
+            kwargs = dict(
+                query_embeddings=[query_embedding],
+                n_results=top_k,
+                include=["documents", "metadatas", "distances"],
+            )
+            if w:
+                kwargs["where"] = w
+            results = collection.query(**kwargs)
+            items = []
+            if results["documents"] and results["documents"][0]:
+                for i, doc in enumerate(results["documents"][0]):
+                    items.append({
+                        "text": doc,
+                        "metadata": results["metadatas"][0][i] if results["metadatas"] else {},
+                        "score": 1 - results["distances"][0][i] if results["distances"] else 0,
+                    })
+            return items
+
+        # Try filtered search first; fall back to unfiltered if too few results
+        if where:
+            try:
+                items = _query(where)
+                if len(items) >= 2:
+                    return items
+                # Not enough filtered results — fall back to full search
+                logger.debug("Metadata filter returned < 2 results, falling back to unfiltered search")
+            except Exception:
+                logger.debug("Metadata filter failed, falling back to unfiltered search")
+
+        return _query(None)
 
     async def delete_document(self, client_id: str, doc_id: str) -> None:
         collection = self._get_or_create_collection(client_id)
-        # Get all chunk IDs for this document
         results = collection.get(where={"doc_id": doc_id})
         if results["ids"]:
             collection.delete(ids=results["ids"])

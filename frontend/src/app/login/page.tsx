@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 
@@ -33,20 +34,16 @@ export default function LoginPage() {
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg">
         <div className="mb-8 text-center">
           <h1 className="text-2xl font-bold text-gray-900">AI Front Desk</h1>
-          <p className="mt-2 text-sm text-gray-500">Admin Dashboard</p>
+          <p className="mt-2 text-sm text-gray-500">Sign in to your dashboard</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
-              {error}
-            </div>
+            <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</div>
           )}
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              Email
-            </label>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Email</label>
             <input
               type="email"
               value={email}
@@ -58,9 +55,7 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">
-              Password
-            </label>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Password</label>
             <input
               type="password"
               value={password}
@@ -78,6 +73,16 @@ export default function LoginPage() {
             {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>
+
+        <div className="mt-6 border-t border-gray-100 pt-5 text-center">
+          <p className="text-xs text-gray-400">First time here?</p>
+          <Link
+            href="/setup"
+            className="mt-1 inline-block text-sm font-medium text-purple-600 hover:underline"
+          >
+            Set up the platform (create super admin)
+          </Link>
+        </div>
       </div>
     </div>
   );

@@ -70,6 +70,13 @@ export default function AnalyticsPage() {
                   <div className="ml-4 text-right text-xs text-gray-400">
                     <p>{new Date(log.created_at).toLocaleString()}</p>
                     <p>{log.response_time_ms}ms</p>
+                    {log.llm_provider === "cache" ? (
+                      <span className="inline-block mt-1 rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                        cache hit
+                      </span>
+                    ) : (
+                      <p className="text-gray-400">{log.llm_provider}</p>
+                    )}
                   </div>
                 </div>
               </div>

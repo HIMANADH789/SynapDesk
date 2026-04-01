@@ -63,3 +63,42 @@ export interface ClientSettings {
   theme_color: string;
   max_history_turns: number;
 }
+
+export interface ClientRecord {
+  client_id: string;
+  name: string;
+  domain?: string;
+  created_at?: string;
+}
+
+export interface ClientUsageSummary {
+  client_id: string;
+  name: string;
+  created_at?: string;
+  total_queries: number;
+  queries_this_month: number;
+  queries_today: number;
+  avg_response_time_ms: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  document_count: number;
+}
+
+export interface SuperAdminOverview {
+  clients: ClientUsageSummary[];
+  total_clients: number;
+  platform_total_queries: number;
+  platform_total_input_tokens: number;
+  platform_total_output_tokens: number;
+}
+
+export interface SuperAdminClientDetail extends UsageStats {
+  provider_breakdown: { provider: string; count: number }[];
+  total_input_tokens: number;
+  total_output_tokens: number;
+  document_count: number;
+  logs: QueryLog[];
+  logs_total: number;
+  logs_page: number;
+  logs_page_size: number;
+}

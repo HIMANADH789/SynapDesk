@@ -32,8 +32,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_origins=["*"],       # Widget is embeddable on any website
+    allow_credentials=False,   # Auth uses Authorization header, not cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )

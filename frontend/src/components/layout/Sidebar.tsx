@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/lib/auth";
 
-const navItems = [
+const adminNavItems = [
   { href: "/dashboard", label: "Overview", icon: "📊" },
   { href: "/dashboard/documents", label: "Documents", icon: "📄" },
   { href: "/dashboard/chat-test", label: "Test Chat", icon: "💬" },
@@ -11,14 +12,26 @@ const navItems = [
   { href: "/dashboard/settings", label: "Settings", icon: "⚙️" },
 ];
 
+const superAdminNavItems = [
+  { href: "/dashboard", label: "Overview", icon: "📊" },
+  { href: "/dashboard/super-admin/institutions", label: "Manage Institutions", icon: "🏫" },
+  { href: "/dashboard/super-admin", label: "Usage & Analytics", icon: "📈" },
+];
+
 export default function Sidebar() {
   const pathname = usePathname();
+  const { role } = useAuth();
+
+  const isSuperAdmin = role === "super_admin";
+  const navItems = isSuperAdmin ? superAdminNavItems : adminNavItems;
 
   return (
     <aside className="flex h-screen w-64 flex-col border-r border-gray-200 bg-white">
       <div className="border-b border-gray-200 p-6">
         <h1 className="text-lg font-bold text-blue-600">AI Front Desk</h1>
-        <p className="text-xs text-gray-400">Admin Panel</p>
+        <p className="text-xs text-gray-400">
+          {isSuperAdmin ? "Super Admin" : "Admin Panel"}
+        </p>
       </div>
 
       <nav className="flex-1 space-y-1 p-4">
@@ -42,6 +55,14 @@ export default function Sidebar() {
           );
         })}
       </nav>
+
+      {isSuperAdmin && (
+        <div className="border-t border-gray-200 p-4">
+          <span className="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-700">
+            Super Admin
+          </span>
+        </div>
+      )}
     </aside>
   );
 }
