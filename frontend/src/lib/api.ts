@@ -1,144 +1,127 @@
 const API_BASE = "/api";
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("token") : null;
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+  const headers: Record<string, string> = { ...(options.headers as Record<string, string>) };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (!(options.body instanceof FormData)) headers["Content-Type"] = "application/json";
 
-  const headers: Record<string, string> = {
-    ...(options.headers as Record<string, string>),
-  };
-
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  // Don't set Content-Type for FormData (browser sets it with boundary)
-  if (!(options.body instanceof FormData)) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
 
   if (res.status === 401) {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("token");
-      window.location.href = "/login";
-    }
+    if (typeof window !== "undefined") { localStorage.removeItem("token"); window.location.href = "/login"; }
     throw new Error("Unauthorized");
   }
-
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: "Request failed" }));
     throw new Error(error.detail || "Request failed");
   }
-
   return res.json();
 }
 
 export const api = {
-  // Auth
+  // ── Auth ────────────────────────────────────────────────────────────────────
   login: (email: string, password: string) =>
-    request<{ access_token: string }>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    }),
+    request<{ access_token: string }>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
 
-  register: (email: string, password: string, client_id: string, role = "admin") =>
-    request<{ message: string }>("/auth/register", {
-      method: "POST",
-      body: JSON.stringify({ email, password, client_id, role }),
-    }),
+  register: (email: string, password: string, client_id: string, role = "admin", setup_key = "") =>
+    request<{ message: string }>("/auth/register", { method: "POST", body: JSON.stringify({ email, password, client_id, role, setup_key }) }),
 
-  getSetupStatus: () =>
-    request<{ setup_required: boolean }>("/auth/setup-status"),
+  getSetupStatus: () => request<{ setup_required: boolean }>("/auth/setup-status"),
 
-  // Documents
+  // ── Documents ────────────────────────────────────────────────────────────────
   uploadDocument: (file: File) => {
     const form = new FormData();
     form.append("file", file);
-    return request<{
-      doc_id: string;
-      filename: string;
-      status: string;
-      chunks_count: number;
-    }>("/documents/upload", { method: "POST", body: form });
+    return request<{ doc_id: string; filename: string; status: string; chunks_count: number }>("/documents/upload", { method: "POST", body: form });
   },
+  listDocuments: () => request<{ documents: import("@/types").Document[]; total: number }>("/documents"),
+  deleteDocument: (docId: string) => request(`/documents/${docId}`, { method: "DELETE" }),
 
-  listDocuments: () =>
-    request<{ documents: import("@/types").Document[]; total: number }>(
-      "/documents"
-    ),
-
-  deleteDocument: (docId: string) =>
-    request(`/documents/${docId}`, { method: "DELETE" }),
-
-  // Chat
-  chat: (clientId: string, message: string, sessionId?: string) =>
-    request<import("@/types").ChatResponse>(
-      `/chat/${clientId}/query`,
-      {
-        method: "POST",
-        body: JSON.stringify({ message, session_id: sessionId }),
-      }
-    ),
+  // ── Chat ─────────────────────────────────────────────────────────────────────
+  chat: (clientId: string, message: string, sessionId?: string, channel = "web_api") =>
+    request<import("@/types").ChatResponse>(`/chat/${clientId}/query`, {
+      method: "POST",
+      body: JSON.stringify({ message, session_id: sessionId, channel }),
+    }),
 
   getChatHistory: (clientId: string, sessionId: string) =>
-    request<{ session_id: string; messages: import("@/types").ChatMessage[] }>(
-      `/chat/${clientId}/history/${sessionId}`
-    ),
+    request<{ session_id: string; messages: import("@/types").ChatMessage[] }>(`/chat/${clientId}/history/${sessionId}`),
 
   getQuota: () => request<{ remaining_daily: number }>("/chat/quota"),
 
-  // Analytics
+  // ── Analytics ────────────────────────────────────────────────────────────────
   getUsage: () => request<import("@/types").UsageStats>("/analytics/usage"),
-
+  getChannelUsage: (channel: string) => request<import("@/types").ChannelStats>(`/analytics/channel/${channel}`),
   getQueries: (page = 1, pageSize = 20) =>
-    request<{
-      logs: import("@/types").QueryLog[];
-      total: number;
-      page: number;
-    }>(`/analytics/queries?page=${page}&page_size=${pageSize}`),
+    request<{ logs: import("@/types").QueryLog[]; total: number; page: number }>(`/analytics/queries?page=${page}&page_size=${pageSize}`),
 
-  // Profile & Client settings
+  // ── Clients ──────────────────────────────────────────────────────────────────
   getMyProfile: () =>
-    request<{
-      email: string;
-      client_id: string;
-      role: string;
-      client: import("@/types").ClientSettings | null;
-    }>("/clients/me/profile"),
+    request<{ email: string; client_id: string; role: string; client: import("@/types").ClientRecord | null }>("/clients/me/profile"),
 
-  updateClientSettings: (
-    clientId: string,
-    settings: Partial<import("@/types").ClientSettings>
-  ) =>
-    request(`/clients/${clientId}/settings`, {
-      method: "PATCH",
-      body: JSON.stringify(settings),
-    }),
+  updateClientSettings: (clientId: string, settings: Record<string, unknown>) =>
+    request(`/clients/${clientId}/settings`, { method: "PATCH", body: JSON.stringify(settings) }),
 
-  // Clients (super-admin)
-  createClient: (data: { client_id: string; name: string; domain?: string; settings?: Record<string, unknown> }) =>
-    request<{ message: string; client_id: string }>("/clients", {
-      method: "POST",
-      body: JSON.stringify({ ...data, settings: data.settings ?? {} }),
-    }),
+  createClient: (data: { client_id: string; name: string; domain?: string }) =>
+    request<{ message: string; client_id: string }>("/clients", { method: "POST", body: JSON.stringify(data) }),
 
-  // Super-admin analytics
-  superAdminOverview: () =>
-    request<import("@/types").SuperAdminOverview>("/analytics/super-admin/overview"),
+  listClients: () => request<{ clients: import("@/types").ClientRecord[]; total: number }>("/clients"),
 
-  superAdminClientDetail: (clientId: string, page = 1, pageSize = 20) =>
-    request<import("@/types").SuperAdminClientDetail>(
-      `/analytics/super-admin/clients/${clientId}?page=${page}&page_size=${pageSize}`
+  getClientConfig: (clientId: string) =>
+    request<import("@/types").ClientRecord>(`/clients/${clientId}/config`),
+
+  // ── Setups ───────────────────────────────────────────────────────────────────
+  listSetups: (clientId: string) =>
+    request<{ setups: import("@/types").SetupSummary[] }>(`/clients/${clientId}/setups`),
+
+  getSetupConfig: (clientId: string, channel: string) =>
+    request<{ channel: string; label: string; emoji: string; config: Record<string, unknown>; editable: boolean }>(
+      `/clients/${clientId}/setups/${channel}`
     ),
 
-  listClients: () =>
-    request<{ clients: import("@/types").ClientRecord[]; total: number }>("/clients"),
+  updateSetupConfig: (clientId: string, channel: string, config: Record<string, unknown>) =>
+    request(`/clients/${clientId}/setups/${channel}`, { method: "PATCH", body: JSON.stringify(config) }),
+
+  toggleSetup: (clientId: string, channel: string, enabled: boolean) =>
+    request<{ message: string; enabled: boolean }>(`/clients/${clientId}/setups/${channel}/toggle`, {
+      method: "POST",
+      body: JSON.stringify({ enabled }),
+    }),
+
+  rotateSetupToken: (clientId: string, channel: string) =>
+    request<{ token: string; channel: string }>(`/clients/${clientId}/setups/${channel}/rotate-token`, { method: "POST" }),
+
+  disableSetupToken: (clientId: string, channel: string) =>
+    request(`/clients/${clientId}/setups/${channel}/token`, { method: "DELETE" }),
+
+  registerTelegramWebhook: (clientId: string, webhookUrl: string) =>
+    request(`/clients/${clientId}/setups/telegram/register-webhook`, {
+      method: "POST",
+      body: JSON.stringify({ webhook_url: webhookUrl }),
+    }),
+
+  // ── Super-admin analytics ─────────────────────────────────────────────────────
+  superAdminOverview: () => request<import("@/types").SuperAdminOverview>("/analytics/super-admin/overview"),
+  superAdminClientDetail: (clientId: string, page = 1, pageSize = 20) =>
+    request<import("@/types").SuperAdminClientDetail>(`/analytics/super-admin/clients/${clientId}?page=${page}&page_size=${pageSize}`),
+  superAdminChannelDetail: (clientId: string, channel: string) =>
+    request<import("@/types").ChannelStats>(`/analytics/super-admin/clients/${clientId}/channel/${channel}`),
+
+  // ── Master keys ───────────────────────────────────────────────────────────────
+  listMasterKeys: () => request<{ keys: { key_id: string; name: string; created_at: string }[] }>("/auth/master-keys"),
+  createMasterKey: (name: string, value: string) =>
+    request<{ key_id: string; name: string; value: string }>("/auth/master-keys", { method: "POST", body: JSON.stringify({ name, value }) }),
+  deleteMasterKey: (keyId: string) => request(`/auth/master-keys/${keyId}`, { method: "DELETE" }),
+
+  impersonate: (clientId: string, master_key: string) =>
+    request<{ access_token: string; institution_name: string; client_id: string }>(
+      `/auth/impersonate/${clientId}`, { method: "POST", body: JSON.stringify({ master_key }) }
+    ),
+
+  // ── Legacy (kept for backward compat) ────────────────────────────────────────
+  rotateWidgetToken: (clientId: string) =>
+    request<{ widget_token: string }>(`/clients/${clientId}/rotate-widget-token`, { method: "POST" }),
+  disableWidgetToken: (clientId: string) =>
+    request(`/clients/${clientId}/widget-token`, { method: "DELETE" }),
 };

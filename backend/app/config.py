@@ -11,7 +11,9 @@ class Settings(BaseSettings):
 
     # API keys
     GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "models/gemini-pro-latest"
     GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
     OPENAI_API_KEY: str = ""
 
     # Local provider config
@@ -28,6 +30,9 @@ class Settings(BaseSettings):
     # Auth
     JWT_SECRET: str = "change-me-in-production"
     JWT_EXPIRY_HOURS: int = 24
+    # Required to access /setup page and create the first super admin.
+    # Set a strong random value in .env. Leave empty to disable setup entirely.
+    PLATFORM_SETUP_KEY: str = ""
 
     # Rate limiting
     GEMINI_RPM_LIMIT: int = 10
@@ -37,7 +42,7 @@ class Settings(BaseSettings):
     HYDE_ENABLED: bool = True               # Hypothetical Document Embedding
     RERANK_ENABLED: bool = True             # Cross-encoder reranking
     CACHE_ENABLED: bool = True              # Semantic query cache
-    CACHE_SIMILARITY_THRESHOLD: float = 0.92  # Cosine sim threshold for cache hit
+    CACHE_SIMILARITY_THRESHOLD: float = 0.85  # Cosine sim threshold for cache hit
     CACHE_TTL_HOURS: int = 24              # How long cached answers stay valid
     RETRIEVAL_CANDIDATES: int = 15         # Candidates fetched before reranking
     RETRIEVAL_TOP_K: int = 4              # Final chunks after reranking

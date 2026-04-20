@@ -51,3 +51,13 @@ async def get_history(session_id: str, max_turns: int = 5) -> list[dict]:
     messages = session.get("messages", [])
     # Return last N turns (each turn = user + assistant = 2 messages)
     return messages[-(max_turns * 2):]
+
+
+async def count_session_queries(session_id: str) -> int:
+    """Return the number of user messages (queries) in a session."""
+    db = get_db()
+    session = await db[CHAT_SESSIONS].find_one({"session_id": session_id})
+    if not session:
+        return 0
+    messages = session.get("messages", [])
+    return sum(1 for m in messages if m.get("role") == "user")

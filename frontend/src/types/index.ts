@@ -32,19 +32,13 @@ export interface ChatResponse {
   session_id: string;
 }
 
-export interface UsageStats {
-  total_queries: number;
-  queries_today: number;
-  avg_response_time_ms: number;
-  top_queries: { query: string; count: number }[];
-  remaining_llm_quota: number;
-}
-
 export interface QueryLog {
   client_id: string;
   session_id: string;
   query: string;
   response: string;
+  channel?: string;
+  cache_hit?: boolean;
   sources: Source[];
   response_time_ms: number;
   llm_provider: string;
@@ -57,11 +51,51 @@ export interface User {
   role: string;
 }
 
+// ── Setup types ────────────────────────────────────────────────────────────────
+
+export type SetupChannel = "widget" | "web_api" | "whatsapp" | "facebook" | "telegram" | "slack";
+
+export interface SetupSummary {
+  channel: SetupChannel;
+  label: string;
+  emoji: string;
+  enabled: boolean;
+  rate_limit_rpm: number;
+  rate_limit_rpd: number;
+  max_queries_per_session: number;
+  token_set?: boolean; // only for widget / web_api
+}
+
+export interface ChannelStats {
+  channel: string;
+  total_queries: number;
+  queries_today: number;
+  avg_response_time_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_hits: number;
+  top_queries: { query: string; count: number }[];
+  daily_trend: { date: string; count: number }[];
+}
+
+// ── Analytics types ────────────────────────────────────────────────────────────
+
+export interface UsageStats {
+  total_queries: number;
+  queries_today: number;
+  avg_response_time_ms: number;
+  top_queries: { query: string; count: number }[];
+  channel_breakdown: { channel: string; total_queries: number; avg_response_time_ms: number; input_tokens: number; output_tokens: number }[];
+  daily_trend: { date: string; count: number }[];
+  remaining_llm_quota: number;
+}
+
 export interface ClientSettings {
   welcome_message: string;
-  system_prompt: string;
+  system_prompt?: string;
   theme_color: string;
   max_history_turns: number;
+  setups?: Record<string, Record<string, unknown>>;
 }
 
 export interface ClientRecord {
@@ -69,6 +103,7 @@ export interface ClientRecord {
   name: string;
   domain?: string;
   created_at?: string;
+  settings?: ClientSettings;
 }
 
 export interface ClientUsageSummary {
@@ -90,10 +125,10 @@ export interface SuperAdminOverview {
   platform_total_queries: number;
   platform_total_input_tokens: number;
   platform_total_output_tokens: number;
+  platform_channel_breakdown: Record<string, number>;
 }
 
 export interface SuperAdminClientDetail extends UsageStats {
-  provider_breakdown: { provider: string; count: number }[];
   total_input_tokens: number;
   total_output_tokens: number;
   document_count: number;
@@ -102,3 +137,6 @@ export interface SuperAdminClientDetail extends UsageStats {
   logs_page: number;
   logs_page_size: number;
 }
+
+// Keep for backward compat
+export type ClientSettingsFull = ClientSettings;

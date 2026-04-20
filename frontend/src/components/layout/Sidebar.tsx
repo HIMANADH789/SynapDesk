@@ -16,6 +16,7 @@ const superAdminNavItems = [
   { href: "/dashboard", label: "Overview", icon: "📊" },
   { href: "/dashboard/super-admin/institutions", label: "Manage Institutions", icon: "🏫" },
   { href: "/dashboard/super-admin", label: "Usage & Analytics", icon: "📈" },
+  { href: "/dashboard/super-admin/settings", label: "Settings", icon: "⚙️" },
 ];
 
 export default function Sidebar() {

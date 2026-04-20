@@ -6,6 +6,7 @@
   const themeColor = script.getAttribute("data-theme-color") || "#1E40AF";
   const apiUrl =
     script.getAttribute("data-api-url") || script.src.replace(/\/widget\/.*/, "");
+  const widgetToken = script.getAttribute("data-token") || "";
 
   // Create shadow DOM container
   const host = document.createElement("div");
@@ -154,25 +155,8 @@
     if (el) el.remove();
   }
 
-  // Animate a chunk character-by-character for the ChatGPT-like effect
-  function animateChunk(
-    chunk: string,
-    botEl: HTMLElement,
-    cursorEl: HTMLElement
-  ): Promise<void> {
-    return new Promise((resolve) => {
-      let i = 0;
-      function next() {
-        if (i >= chunk.length) { resolve(); return; }
-        botEl.insertBefore(document.createTextNode(chunk[i++]), cursorEl);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-        setTimeout(next, 15);
-      }
-      next();
-    });
-  }
-
-  // Streaming send — calls /stream endpoint, animates tokens character-by-character
+  // Streaming send — calls /stream endpoint, appends each SSE token chunk directly.
+  // The SSE stream itself creates a progressive "typing" effect without blocking.
   async function sendStreaming(text: string) {
     const typingEl = showTyping();
     let botEl: HTMLElement | null = null;
@@ -181,11 +165,14 @@
     try {
       const res = await fetch(`${apiUrl}/api/chat/${clientId}/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(widgetToken ? { "X-Widget-Token": widgetToken } : {}),
+        },
         body: JSON.stringify({ message: text, session_id: sessionId }),
       });
 
-      if (!res.ok || !res.body) throw new Error("Stream failed");
+      if (!res.ok || !res.body) throw new Error(`Stream failed: ${res.status}`);
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -216,19 +203,36 @@
                 messagesEl.appendChild(botEl);
                 botEl.appendChild(cursorEl);
               }
-              // Animate this chunk character-by-character
-              await animateChunk(event.text as string, botEl, cursorEl!);
+              // Append chunk directly before cursor (SSE streaming is the animation)
+              if (event.text) {
+                botEl.insertBefore(document.createTextNode(event.text as string), cursorEl!);
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+              }
 
             } else if (event.type === "done") {
-              sessionId = event.session_id as string;
+              if (event.session_id) sessionId = event.session_id as string;
               if (cursorEl) cursorEl.remove();
+              // If stream ended with no tokens, show fallback
+              if (!botEl) {
+                typingEl.remove();
+                addMessage("bot", "I'm sorry, I couldn't generate a response. Please try again.");
+              }
+            } else if (event.type === "error") {
+              typingEl.remove();
+              if (cursorEl) cursorEl.remove();
+              addMessage("bot", (event.content as string) || "Sorry, something went wrong. Please try again.");
             }
           } catch {
-            // skip malformed chunk
+            // skip malformed SSE chunk
           }
         }
       }
-    } catch {
+
+      // Stream ended without a done event — clean up gracefully
+      if (botEl && cursorEl) cursorEl.remove();
+      else if (!botEl) { typingEl.remove(); addMessage("bot", "Sorry, something went wrong. Please try again."); }
+
+    } catch (err) {
       removeTyping();
       if (!botEl) addMessage("bot", "Sorry, something went wrong. Please try again.");
       else if (cursorEl) cursorEl.remove();

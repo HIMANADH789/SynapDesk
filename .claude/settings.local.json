@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(python -c \"from app.api import auth, integrations, clients; print\\('OK'\\)\")",
+      "Bash(python -c ':*)"
     ]
   }
 }

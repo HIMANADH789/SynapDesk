@@ -66,7 +66,7 @@ export default function SettingsPage() {
     setSaving(true);
     setError("");
     try {
-      await api.updateClientSettings(clientId, settings);
+      await api.updateClientSettings(clientId, settings as unknown as Record<string, unknown>);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {

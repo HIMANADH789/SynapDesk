@@ -94,11 +94,11 @@ export default function InstitutionDetailPage() {
       </div>
 
       {/* LLM provider breakdown */}
-      {data.provider_breakdown.length > 0 && (
+      {!!(data as unknown as Record<string, unknown[]>).provider_breakdown?.length && (
         <div className="rounded-xl border border-gray-200 bg-white p-5">
           <h2 className="mb-3 font-semibold text-gray-800">LLM Provider Usage</h2>
           <div className="flex flex-wrap gap-3">
-            {data.provider_breakdown.map((p) => (
+            {((data as unknown as Record<string, unknown[]>).provider_breakdown as { provider: string; count: number }[] ?? []).map((p) => (
               <div
                 key={p.provider}
                 className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"

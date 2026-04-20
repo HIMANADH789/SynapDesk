@@ -6,6 +6,7 @@ class RegisterRequest(BaseModel):
     password: str
     client_id: str
     role: str = "admin"
+    setup_key: str = ""  # Required only when role == "super_admin"
 
 
 class LoginRequest(BaseModel):

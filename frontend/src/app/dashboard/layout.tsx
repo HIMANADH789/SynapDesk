@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
+import ImpersonationBanner from "@/components/ImpersonationBanner";
+import { getTokenPayload } from "@/lib/auth";
 
 export default function DashboardLayout({
   children,
@@ -11,16 +13,33 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
+    const { role, expired } = getTokenPayload();
+
+    if (expired || !role) {
       router.replace("/login");
-    } else {
-      setHydrated(true);
+      return;
     }
-  }, [router]);
+
+    const isSuperAdminRoute = pathname.startsWith("/dashboard/super-admin");
+
+    // Admin trying to access super-admin routes → bounce to their dashboard
+    if (isSuperAdminRoute && role !== "super_admin") {
+      router.replace("/dashboard");
+      return;
+    }
+
+    // Super admin accessing plain /dashboard → redirect to super-admin overview
+    if (pathname === "/dashboard" && role === "super_admin") {
+      router.replace("/dashboard/super-admin");
+      return;
+    }
+
+    setHydrated(true);
+  }, [router, pathname]);
 
   if (!hydrated) {
     return (
@@ -32,6 +51,7 @@ export default function DashboardLayout({
 
   return (
     <div className="flex h-screen">
+      <ImpersonationBanner />
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />

@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 
@@ -11,8 +10,15 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, isAuthenticated, role } = useAuth();
   const router = useRouter();
+
+  // If already authenticated, redirect to correct dashboard
+  useEffect(() => {
+    if (isAuthenticated && role) {
+      router.replace(role === "super_admin" ? "/dashboard/super-admin" : "/dashboard");
+    }
+  }, [isAuthenticated, role, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -21,9 +27,13 @@ export default function LoginPage() {
     try {
       const res = await api.login(email, password);
       login(res.access_token);
-      router.push("/dashboard");
+
+      // Decode role from token to redirect immediately
+      const payload = JSON.parse(atob(res.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+      const userRole = payload.role as string;
+      window.location.href = userRole === "super_admin" ? "/dashboard/super-admin" : "/dashboard";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(err instanceof Error ? err.message : "Invalid email or password");
     } finally {
       setLoading(false);
     }
@@ -33,6 +43,9 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-lg">
         <div className="mb-8 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
+            <span className="text-2xl">🏫</span>
+          </div>
           <h1 className="text-2xl font-bold text-gray-900">AI Front Desk</h1>
           <p className="mt-2 text-sm text-gray-500">Sign in to your dashboard</p>
         </div>
@@ -49,8 +62,9 @@ export default function LoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
+              autoFocus
               className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              placeholder="admin@institution.edu"
+              placeholder="you@institution.edu"
             />
           </div>
 
@@ -70,19 +84,9 @@ export default function LoginPage() {
             disabled={loading}
             className="w-full rounded-lg bg-blue-600 px-4 py-2.5 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {loading ? "Signing in..." : "Sign In"}
+            {loading ? "Signing in…" : "Sign In"}
           </button>
         </form>
-
-        <div className="mt-6 border-t border-gray-100 pt-5 text-center">
-          <p className="text-xs text-gray-400">First time here?</p>
-          <Link
-            href="/setup"
-            className="mt-1 inline-block text-sm font-medium text-purple-600 hover:underline"
-          >
-            Set up the platform (create super admin)
-          </Link>
-        </div>
       </div>
     </div>
   );

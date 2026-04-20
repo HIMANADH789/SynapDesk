@@ -6,21 +6,26 @@ from app.services import analytics_service
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
+# ── Admin endpoints (per-institution) ─────────────────────────────────────────
+
 @router.get("/usage")
 async def get_usage(user: dict = Depends(get_current_user)):
+    """Full usage stats for the logged-in institution including channel breakdown."""
     return await analytics_service.get_usage_stats(user["client_id"])
 
 
+@router.get("/channel/{channel}")
+async def get_channel_usage(channel: str, user: dict = Depends(get_current_user)):
+    """Detailed stats for one channel for the logged-in institution."""
+    return await analytics_service.get_channel_stats(user["client_id"], channel)
+
+
 @router.get("/queries")
-async def get_queries(
-    page: int = 1,
-    page_size: int = 20,
-    user: dict = Depends(get_current_user),
-):
+async def get_queries(page: int = 1, page_size: int = 20, user: dict = Depends(get_current_user)):
     return await analytics_service.get_query_logs(user["client_id"], page, page_size)
 
 
-# ── Super-admin endpoints ────────────────────────────────────────────────────
+# ── Super-admin endpoints ──────────────────────────────────────────────────────
 
 @router.get("/super-admin/overview")
 async def super_admin_overview(user: dict = Depends(get_current_user)):
@@ -39,3 +44,15 @@ async def super_admin_client_detail(
     if user.get("role") != "super_admin":
         raise HTTPException(403, "Super admin access required")
     return await analytics_service.get_client_detail_usage(client_id, page, page_size)
+
+
+@router.get("/super-admin/clients/{client_id}/channel/{channel}")
+async def super_admin_channel_detail(
+    client_id: str,
+    channel: str,
+    user: dict = Depends(get_current_user),
+):
+    """Per-channel analytics for a specific institution — super admin view."""
+    if user.get("role") != "super_admin":
+        raise HTTPException(403, "Super admin access required")
+    return await analytics_service.get_channel_stats(client_id, channel)

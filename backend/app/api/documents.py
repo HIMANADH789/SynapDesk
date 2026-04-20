@@ -4,6 +4,7 @@ from app.api.auth import get_current_user
 from app.dependencies import get_embeddings, get_llm, get_vectordb
 from app.providers.base import EmbeddingProvider, LLMProvider, VectorStoreProvider
 from app.services import document_service
+from app.utils.query_cache import invalidate_client_cache
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -41,6 +42,7 @@ async def upload_document(
             vectordb_provider=vectordb,
             llm_provider=llm,
         )
+        await invalidate_client_cache(client_id)
         return {
             "doc_id": doc["doc_id"],
             "filename": doc["filename"],
@@ -68,4 +70,5 @@ async def delete_document(
     deleted = await document_service.delete_document(user["client_id"], doc_id, vectordb)
     if not deleted:
         raise HTTPException(404, "Document not found")
+    await invalidate_client_cache(user["client_id"])
     return {"message": "Document deleted successfully"}

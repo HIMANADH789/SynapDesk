@@ -22,12 +22,27 @@ def _get_model():
     _load_attempted = True
     try:
         from sentence_transformers import CrossEncoder  # type: ignore
-        _model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", max_length=512)
-        logger.info("Cross-encoder reranker loaded successfully")
+        import torch  # type: ignore
+        # Explicitly load on CPU to avoid PyTorch meta-device errors
+        # that occur when accelerate initialises models on a meta device.
+        _model = CrossEncoder(
+            "cross-encoder/ms-marco-MiniLM-L-6-v2",
+            max_length=512,
+            device="cpu",
+        )
+        # Ensure the underlying HuggingFace model is fully materialised on CPU
+        if hasattr(_model, "model"):
+            _model.model = _model.model.to(torch.device("cpu"))
+        logger.info("Cross-encoder reranker loaded successfully on CPU")
     except Exception as e:
         logger.warning(f"Reranker could not be loaded — falling back to cosine scores: {e}")
         _model = None
     return _model
+
+
+def preload() -> None:
+    """Call at application startup to warm the model before the first request."""
+    _get_model()
 
 
 async def rerank(query: str, candidates: list[dict], top_k: int = 4) -> list[dict]:

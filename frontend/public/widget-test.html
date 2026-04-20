@@ -84,12 +84,13 @@
     data-client-id="vjiet"
     data-api-url="http://localhost:8000"
     data-theme-color="#2563eb"
+    data-token="EjZXk32l4SVegRGBGuaKtOpolQyHPQU_2uT6KTQDBOo"
   ></script>
 
   <script>
     // Display the current embed code for reference
     const s = document.querySelector('script[data-client-id]');
-    const attrs = ['src', 'data-client-id', 'data-api-url', 'data-theme-color'];
+    const attrs = ['src', 'data-client-id', 'data-api-url', 'data-theme-color', 'data-token'];
     const lines = attrs.map(a => `  ${a}="${s.getAttribute(a)}"`).join('\n');
     document.getElementById('widget-code-display').textContent =
       `<script\n${lines}\n><\/script>`;

@@ -18,6 +18,7 @@ from typing import Optional
 from app.config import settings
 from app.db.collections import QUERY_LOGS, CLIENTS
 from app.db.mongodb import get_db
+from app.models.client import get_setup
 from app.providers.base import EmbeddingProvider, LLMProvider, VectorStoreProvider
 from app.services.chat_service import add_message, get_history, get_or_create_session
 from app.utils.rate_limiter import RateLimiter
@@ -131,83 +132,141 @@ Keep it under 100 words. Be specific and direct.
 Question: {query}
 Answer:"""
 
+# Circuit breaker: skip HyDE for 60s after 3 consecutive failures
+_hyde_fail_count = 0
+_hyde_open_until: float = 0.0
+
 
 async def _hypothetical_embedding(
     query: str, llm: LLMProvider, embeddings: EmbeddingProvider
 ) -> list[float]:
     """Generate a hypothetical answer and embed it for richer semantic retrieval."""
+    global _hyde_fail_count, _hyde_open_until
+
+    if time.time() < _hyde_open_until:
+        return await embeddings.embed_query(query)
+
     try:
         resp = await llm.generate(
             _HYDE_PROMPT.format(query=query), temperature=0.1, max_tokens=150
         )
+        _hyde_fail_count = 0
         hyp_text = resp.text.strip()
         return await embeddings.embed_query(hyp_text)
     except Exception as e:
-        logger.warning(f"HyDE failed, falling back to query embedding: {e}")
+        _hyde_fail_count += 1
+        if _hyde_fail_count >= 3:
+            _hyde_open_until = time.time() + 60.0
+            _hyde_fail_count = 0
+            logger.warning("HyDE circuit breaker opened for 60s (quota/rate-limit pressure)")
+        else:
+            logger.debug("HyDE skipped, falling back to query embedding: %s", type(e).__name__)
         return await embeddings.embed_query(query)
 
 
 # ── Enhancement 1: Clarification detection ───────────────────────────────────
 
-_CLARIFICATION_PROMPT = """A user asked: "{query}"
+_CLARIFICATION_PROMPT = """You are a helpful assistant deciding whether a user's question needs clarification before it can be answered accurately.
 
-We retrieved information but it covers multiple different contexts:
-{context_summary}
+User question: "{query}"
 
-Is this question ambiguous and would benefit from clarification before answering?
-If yes, write ONE short, friendly clarifying question.
-If the question is clear enough, say NO.
+Retrieved context snippets (these are what we found in our knowledge base):
+{context_snippets}
 
-Respond with JSON:
-{{"needs_clarification": true, "question": "Which year are you in?"}}
+Decide if the question is ambiguous. A question is ambiguous when:
+- Multiple distinct topics / categories are retrieved and it's unclear which applies
+- The question lacks a key detail (e.g., which year, which department, which course)
+- The retrieved chunks give conflicting or incompatible answers
+
+If clarification is needed, write ONE short, friendly clarifying question (max 15 words).
+If the question is clear enough to answer well, return needs_clarification: false.
+
+Be conservative — only ask for clarification when it genuinely matters for accuracy.
+
+Respond ONLY with valid JSON (no markdown, no explanation):
+{{"needs_clarification": true, "question": "Which department are you asking about?"}}
 or
-{{"needs_clarification": false}}
-
-Return ONLY valid JSON."""
+{{"needs_clarification": false}}"""
 
 
 async def _check_clarification(
     query: str,
     candidates: list[dict],
     llm: LLMProvider,
+    history: list | None = None,
 ) -> Optional[str]:
     """
-    Check if retrieved candidates represent multiple conflicting contexts.
-    If so, generate and return a clarifying question. Returns None if no clarification needed.
+    Decide if the query needs clarification before a good answer can be given.
+
+    Two-pass approach:
+    1. Fast heuristics: skip unless there is genuine metadata diversity OR
+       very low confidence across all retrieved chunks.
+    2. If heuristic fires, ask LLM to confirm and generate the question.
+    Returns a clarifying question string, or None if the answer can proceed.
     """
-    # Collect distinct entity values across all retrieved chunks
+    if not candidates:
+        return None
+
+    # ── Skip if user is answering a previous clarification ───────────────────
+    # If the last assistant message ended with "?", the user is replying to our
+    # clarification — don't loop back into another clarification check.
+    if history:
+        for msg in reversed(history[:-1]):  # exclude last user message
+            if msg.get("role") == "assistant":
+                if str(msg.get("content", "")).strip().endswith("?"):
+                    return None
+                break  # only look at the most recent assistant turn
+
+    # ── Skip for very short clarification-answering patterns ─────────────────
+    # A reply like "Computer Science" or "3rd year CSE" should go straight to answer.
+    query_words = query.strip().split()
+    if len(query_words) <= 4 and not any(
+        w in query.lower() for w in ("what", "who", "when", "where", "how", "which", "why")
+    ):
+        return None
+
+    # ── Heuristic 1: metadata diversity ──────────────────────────────────────
     entity_keys = ("year", "semester", "department", "course")
     diversity: dict[str, set] = {k: set() for k in entity_keys}
     for c in candidates:
         meta = c.get("metadata", {})
         for k in entity_keys:
             val = meta.get(k)
-            if val and val != "null":
-                diversity[k].add(val)
+            if val and val not in ("null", None, ""):
+                diversity[k].add(str(val))
 
-    # Only trigger if at least one entity has 2+ distinct values
-    ambiguous_entities = {k: v for k, v in diversity.items() if len(v) >= 2}
-    if not ambiguous_entities:
+    # Require at least 3 distinct values in a field to flag ambiguity
+    has_metadata_ambiguity = any(len(v) >= 3 for v in diversity.values())
+
+    # ── Heuristic 2: very low confidence ─────────────────────────────────────
+    scores = [c.get("score", 0.0) for c in candidates]
+    top_score = max(scores) if scores else 0.0
+    # Only flag when top retrieval score is very low and we have plenty of candidates
+    # (raises bar vs. previous 0.45 threshold — reduces false positives)
+    low_confidence = top_score < 0.30 and len(candidates) >= 4
+
+    if not has_metadata_ambiguity and not low_confidence:
         return None
 
-    # Build a short summary of the ambiguity for the LLM prompt
-    lines = []
-    for k, vals in ambiguous_entities.items():
-        lines.append(f"- {k.capitalize()}: {', '.join(sorted(vals))}")
-    context_summary = "\n".join(lines)
+    # ── LLM-based clarification check ────────────────────────────────────────
+    snippets = []
+    for i, c in enumerate(candidates[:4], 1):
+        text = c.get("text", "")[:120].replace("\n", " ")
+        snippets.append(f"{i}. {text}…")
+    context_snippets = "\n".join(snippets)
 
     try:
         await _rate_limiter.acquire()
         resp = await llm.generate(
-            _CLARIFICATION_PROMPT.format(query=query, context_summary=context_summary),
-            temperature=0.1,
-            max_tokens=120,
+            _CLARIFICATION_PROMPT.format(query=query, context_snippets=context_snippets),
+            temperature=0.0,
+            max_tokens=80,
         )
         data = _parse_json_response(resp.text)
         if data.get("needs_clarification") and data.get("question"):
             return str(data["question"])
     except Exception as e:
-        logger.warning(f"Clarification check failed: {e}")
+        logger.debug("Clarification check failed: %s", type(e).__name__)
 
     return None
 
@@ -338,6 +397,7 @@ async def query(
     llm: LLMProvider,
     embeddings: EmbeddingProvider,
     vectordb: VectorStoreProvider,
+    channel: str = "widget",
 ) -> dict:
     start = time.time()
     db = get_db()
@@ -356,6 +416,19 @@ async def query(
             max_history = cs["max_history_turns"]
 
     history = await get_history(session_id, max_turns=max_history)
+
+    # Session query limit
+    from app.services.chat_service import count_session_queries
+    query_count = await count_session_queries(session_id)
+    _setup_cfg = get_setup((client or {}).get("settings", {}), channel)
+    max_qs = _setup_cfg.get("max_queries_per_session", 50)
+    if max_qs > 0 and query_count >= max_qs:
+        limit_msg = f"You've reached the session limit of {max_qs} messages. Please start a new conversation."
+        await add_message(session_id, "assistant", limit_msg)
+        response_time = int((time.time() - start) * 1000)
+        await _log_query(client_id, session_id, message, limit_msg, [], response_time, "limit", {}, channel=channel)
+        return {"response": limit_msg, "sources": [], "session_id": session_id}
+
     history_text = _build_history_text(history)
 
     # Conversational shortcut — no retrieval
@@ -366,7 +439,7 @@ async def query(
         text = _clean_markdown(llm_response.text)
         await add_message(session_id, "assistant", text)
         response_time = int((time.time() - start) * 1000)
-        await _log_query(client_id, session_id, message, text, [], response_time, llm_response.model, llm_response.usage)
+        await _log_query(client_id, session_id, message, text, [], response_time, llm_response.model, llm_response.usage, channel=channel)
         return {"response": text, "sources": [], "session_id": session_id}
 
     can_proceed = await _rate_limiter.acquire()
@@ -381,7 +454,7 @@ async def query(
             logger.debug("Cache hit for query: %s", message[:60])
             await add_message(session_id, "assistant", cached["response"], cached["sources"])
             response_time = int((time.time() - start) * 1000)
-            await _log_query(client_id, session_id, message, cached["response"], cached["sources"], response_time, "cache", {})
+            await _log_query(client_id, session_id, message, cached["response"], cached["sources"], response_time, "cache", {}, channel=channel)
             return {"response": cached["response"], "sources": cached["sources"], "session_id": session_id}
 
     # Retrieve + rerank
@@ -390,15 +463,15 @@ async def query(
     if not top_candidates:
         await add_message(session_id, "assistant", FALLBACK_MESSAGE)
         response_time = int((time.time() - start) * 1000)
-        await _log_query(client_id, session_id, message, FALLBACK_MESSAGE, [], response_time, llm.get_model_name(), {})
+        await _log_query(client_id, session_id, message, FALLBACK_MESSAGE, [], response_time, llm.get_model_name(), {}, channel=channel)
         return {"response": FALLBACK_MESSAGE, "sources": [], "session_id": session_id}
 
     # Enhancement 1: clarification check
-    clarification = await _check_clarification(message, top_candidates, llm)
+    clarification = await _check_clarification(message, top_candidates, llm, history=history)
     if clarification:
         await add_message(session_id, "assistant", clarification)
         response_time = int((time.time() - start) * 1000)
-        await _log_query(client_id, session_id, message, clarification, [], response_time, llm.get_model_name(), {})
+        await _log_query(client_id, session_id, message, clarification, [], response_time, llm.get_model_name(), {}, channel=channel)
         return {"response": clarification, "sources": [], "session_id": session_id}
 
     context = "\n\n---\n\n".join(c["text"] for c in top_candidates)
@@ -413,7 +486,7 @@ async def query(
 
     await add_message(session_id, "assistant", text, all_sources)
     response_time = int((time.time() - start) * 1000)
-    await _log_query(client_id, session_id, message, text, all_sources, response_time, llm_response.model, llm_response.usage)
+    await _log_query(client_id, session_id, message, text, all_sources, response_time, llm_response.model, llm_response.usage, channel=channel)
 
     # Store in semantic cache
     if settings.CACHE_ENABLED:
@@ -431,6 +504,7 @@ async def query_stream(
     llm: LLMProvider,
     embeddings: EmbeddingProvider,
     vectordb: VectorStoreProvider,
+    channel: str = "widget",
 ):
     start = time.time()
     db = get_db()
@@ -449,6 +523,21 @@ async def query_stream(
             max_history = cs["max_history_turns"]
 
     history = await get_history(session_id, max_turns=max_history)
+
+    # Session query limit
+    from app.services.chat_service import count_session_queries
+    query_count = await count_session_queries(session_id)
+    _setup_cfg = get_setup((client or {}).get("settings", {}), channel)
+    max_qs = _setup_cfg.get("max_queries_per_session", 50)
+    if max_qs > 0 and query_count >= max_qs:
+        limit_msg = f"You've reached the session limit of {max_qs} messages. Please start a new conversation."
+        await add_message(session_id, "assistant", limit_msg)
+        response_time = int((time.time() - start) * 1000)
+        await _log_query(client_id, session_id, message, limit_msg, [], response_time, "limit", {}, channel=channel)
+        yield {"type": "token", "text": limit_msg}
+        yield {"type": "done", "session_id": session_id, "sources": []}
+        return
+
     history_text = _build_history_text(history)
 
     # Conversational shortcut
@@ -462,7 +551,7 @@ async def query_stream(
         full_text = _clean_markdown(full_text)
         await add_message(session_id, "assistant", full_text)
         response_time = int((time.time() - start) * 1000)
-        await _log_query(client_id, session_id, message, full_text, [], response_time, llm.get_model_name(), {})
+        await _log_query(client_id, session_id, message, full_text, [], response_time, llm.get_model_name(), {}, channel=channel)
         yield {"type": "done", "session_id": session_id, "sources": []}
         return
 
@@ -479,7 +568,7 @@ async def query_stream(
             logger.debug("Cache hit (stream) for query: %s", message[:60])
             await add_message(session_id, "assistant", cached["response"], cached["sources"])
             response_time = int((time.time() - start) * 1000)
-            await _log_query(client_id, session_id, message, cached["response"], cached["sources"], response_time, "cache", {})
+            await _log_query(client_id, session_id, message, cached["response"], cached["sources"], response_time, "cache", {}, channel=channel)
             yield {"type": "token", "text": cached["response"]}
             yield {"type": "done", "session_id": session_id, "sources": cached["sources"]}
             return
@@ -490,17 +579,17 @@ async def query_stream(
     if not top_candidates:
         await add_message(session_id, "assistant", FALLBACK_MESSAGE)
         response_time = int((time.time() - start) * 1000)
-        await _log_query(client_id, session_id, message, FALLBACK_MESSAGE, [], response_time, llm.get_model_name(), {})
+        await _log_query(client_id, session_id, message, FALLBACK_MESSAGE, [], response_time, llm.get_model_name(), {}, channel=channel)
         yield {"type": "token", "text": FALLBACK_MESSAGE}
         yield {"type": "done", "session_id": session_id, "sources": []}
         return
 
     # Enhancement 1: clarification check
-    clarification = await _check_clarification(message, top_candidates, llm)
+    clarification = await _check_clarification(message, top_candidates, llm, history=history)
     if clarification:
         await add_message(session_id, "assistant", clarification)
         response_time = int((time.time() - start) * 1000)
-        await _log_query(client_id, session_id, message, clarification, [], response_time, llm.get_model_name(), {})
+        await _log_query(client_id, session_id, message, clarification, [], response_time, llm.get_model_name(), {}, channel=channel)
         yield {"type": "token", "text": clarification}
         yield {"type": "done", "session_id": session_id, "sources": []}
         return
@@ -520,7 +609,7 @@ async def query_stream(
     full_text = _clean_markdown(full_text)
     await add_message(session_id, "assistant", full_text, all_sources)
     response_time = int((time.time() - start) * 1000)
-    await _log_query(client_id, session_id, message, full_text, all_sources, response_time, llm.get_model_name(), {})
+    await _log_query(client_id, session_id, message, full_text, all_sources, response_time, llm.get_model_name(), {}, channel=channel)
 
     if settings.CACHE_ENABLED and query_embedding_for_cache is not None:
         await store_cache(client_id, message, query_embedding_for_cache, full_text, all_sources)
@@ -541,15 +630,27 @@ def _build_history_text(history: list) -> str:
 
 
 def _get_fallback_llm(current_llm: LLMProvider) -> LLMProvider:
-    if settings.GROQ_API_KEY:
+    # Try Groq if not current, then Gemini, then Ollama
+    from app.config import settings
+    # If current is Gemini and Groq is available, fallback to Groq
+    if current_llm.get_model_name().lower().startswith("gemini") and settings.GROQ_API_KEY:
         from app.providers.llm.groq import GroqProvider
-        return GroqProvider(api_key=settings.GROQ_API_KEY)
+        return GroqProvider(api_key=settings.GROQ_API_KEY, model=settings.GROQ_MODEL)
+    # If current is Groq and Gemini is available, fallback to Gemini
+    if current_llm.get_model_name().lower().startswith("llama") and settings.GEMINI_API_KEY:
+        from app.providers.llm.gemini import GeminiProvider
+        return GeminiProvider(api_key=settings.GEMINI_API_KEY, model=settings.GEMINI_MODEL)
+    # Otherwise, fallback to Ollama if available
+    if settings.OLLAMA_URL:
+        from app.providers.llm.ollama import OllamaProvider
+        return OllamaProvider(base_url=settings.OLLAMA_URL)
     return current_llm
 
 
 async def _log_query(
     client_id: str, session_id: str, query_text: str, response: str,
     sources: list, response_time_ms: int, model: str, usage: dict,
+    channel: str = "widget",
 ) -> None:
     db = get_db()
     await db[QUERY_LOGS].insert_one({
@@ -561,6 +662,7 @@ async def _log_query(
         "response_time_ms": response_time_ms,
         "llm_provider": model,
         "tokens_used": usage,
+        "channel": channel,
         "created_at": datetime.now(timezone.utc),
     })
 

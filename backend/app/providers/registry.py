@@ -12,10 +12,10 @@ def get_llm_provider() -> LLMProvider:
         match settings.LLM_PROVIDER:
             case "gemini":
                 from app.providers.llm.gemini import GeminiProvider
-                _llm_instance = GeminiProvider(api_key=settings.GEMINI_API_KEY)
+                _llm_instance = GeminiProvider(api_key=settings.GEMINI_API_KEY, model=settings.GEMINI_MODEL)
             case "groq":
                 from app.providers.llm.groq import GroqProvider
-                _llm_instance = GroqProvider(api_key=settings.GROQ_API_KEY)
+                _llm_instance = GroqProvider(api_key=settings.GROQ_API_KEY, model=settings.GROQ_MODEL)
             case "ollama":
                 from app.providers.llm.ollama import OllamaProvider
                 _llm_instance = OllamaProvider(base_url=settings.OLLAMA_URL)
