@@ -39,10 +39,10 @@ export const api = {
   deleteDocument: (docId: string) => request(`/documents/${docId}`, { method: "DELETE" }),
 
   // ── Chat ─────────────────────────────────────────────────────────────────────
-  chat: (clientId: string, message: string, sessionId?: string, channel = "web_api") =>
+  chat: (clientId: string, message: string, sessionId?: string, channel = "web_api", departmentCode = "") =>
     request<import("@/types").ChatResponse>(`/chat/${clientId}/query`, {
       method: "POST",
-      body: JSON.stringify({ message, session_id: sessionId, channel }),
+      body: JSON.stringify({ message, session_id: sessionId, channel, department_code: departmentCode }),
     }),
 
   getChatHistory: (clientId: string, sessionId: string) =>

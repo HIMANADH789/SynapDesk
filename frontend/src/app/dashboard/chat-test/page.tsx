@@ -50,6 +50,7 @@ async function streamChat(
   sessionId: string | undefined,
   onToken: (text: string) => void,
   onDone: (sessionId: string, sources: Source[]) => void,
+  departmentCode: string = "",
 ) {
   const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
 
@@ -61,7 +62,7 @@ async function streamChat(
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify({ message, session_id: sessionId }),
+    body: JSON.stringify({ message, session_id: sessionId, department_code: departmentCode }),
   });
 
   if (!res.ok || !res.body) {
@@ -106,11 +107,22 @@ export default function ChatTestPage() {
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | undefined>();
   const [clientId, setClientId] = useState("default");
+  const [departmentCode, setDepartmentCode] = useState<string>("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const id = getClientIdFromToken();
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    let id = "default";
+    let dc = "";
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1]));
+        id = payload.client_id || "default";
+        dc = payload.department_code || "";
+      } catch {}
+    }
     setClientId(id);
+    setDepartmentCode(dc);
 
     api.getMyProfile().then((profile) => {
       const s = (profile.client as unknown as { settings?: { welcome_message?: string } })?.settings;
@@ -165,6 +177,7 @@ export default function ChatTestPage() {
             });
           }
         },
+        departmentCode,
       );
     } catch {
       setMessages((prev) => {

@@ -10,8 +10,9 @@ ALL_CHANNELS = ["widget", "web_api", "whatsapp", "facebook", "telegram", "slack"
 async def _channel_breakdown(client_id: str) -> list:
     """Aggregate query count + avg response time per channel for one institution."""
     db = get_db()
+    match = {"client_id": client_id}
     pipeline = [
-        {"$match": {"client_id": client_id}},
+        {"$match": match},
         {"$group": {
             "_id": {"$ifNull": ["$channel", "widget"]},
             "total": {"$sum": 1},
@@ -38,8 +39,9 @@ async def _channel_breakdown(client_id: str) -> list:
 async def _daily_trend(client_id: str, days: int = 7) -> list:
     """Last N days of query counts (all channels combined)."""
     db = get_db()
+    match = {"client_id": client_id}
     pipeline = [
-        {"$match": {"client_id": client_id}},
+        {"$match": match},
         {"$group": {
             "_id": {"$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}},
             "count": {"$sum": 1},
@@ -54,23 +56,25 @@ async def _daily_trend(client_id: str, days: int = 7) -> list:
 async def get_usage_stats(client_id: str) -> dict:
     db = get_db()
 
-    total_queries = await db[QUERY_LOGS].count_documents({"client_id": client_id})
+    match = {"client_id": client_id}
+
+    total_queries = await db[QUERY_LOGS].count_documents(match)
 
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     queries_today = await db[QUERY_LOGS].count_documents({
-        "client_id": client_id,
+        **match,
         "created_at": {"$gte": today_start},
     })
 
     pipeline = [
-        {"$match": {"client_id": client_id}},
+        {"$match": match},
         {"$group": {"_id": None, "avg_time": {"$avg": "$response_time_ms"}}},
     ]
     avg_result = await db[QUERY_LOGS].aggregate(pipeline).to_list(length=1)
     avg_response_time = avg_result[0]["avg_time"] if avg_result else 0
 
     top_pipeline = [
-        {"$match": {"client_id": client_id}},
+        {"$match": match},
         {"$group": {"_id": "$query", "count": {"$sum": 1}}},
         {"$sort": {"count": -1}},
         {"$limit": 10},
@@ -79,7 +83,7 @@ async def get_usage_stats(client_id: str) -> dict:
     top_queries = [{"query": q["_id"], "count": q["count"]} for q in top_queries]
 
     channel_breakdown = await _channel_breakdown(client_id)
-    daily_trend = await _daily_trend(client_id)
+    daily_trend = await _daily_trend(client_id, 7)
 
     return {
         "total_queries": total_queries,
@@ -253,7 +257,8 @@ async def get_client_detail_usage(client_id: str, page: int = 1, page_size: int 
 async def get_query_logs(client_id: str, page: int = 1, page_size: int = 20) -> dict:
     db = get_db()
     skip = (page - 1) * page_size
-    cursor = db[QUERY_LOGS].find({"client_id": client_id}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(page_size)
+    match = {"client_id": client_id}
+    cursor = db[QUERY_LOGS].find(match, {"_id": 0}).sort("created_at", -1).skip(skip).limit(page_size)
     logs = await cursor.to_list(length=page_size)
-    total = await db[QUERY_LOGS].count_documents({"client_id": client_id})
+    total = await db[QUERY_LOGS].count_documents(match)
     return {"logs": logs, "total": total, "page": page, "page_size": page_size}

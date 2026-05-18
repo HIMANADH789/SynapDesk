@@ -1,7 +1,7 @@
 import secrets
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.api.auth import get_current_user
 from app.db.mongodb import get_db
@@ -47,6 +47,14 @@ async def create_client(request: ClientCreate, user: dict = Depends(get_current_
             from app.models.client import default_setups
             settings_dict["setups"] = default_setups()
         settings_dict["setups"]["widget"]["allowed_origins"] = origins
+
+    import os
+    try:
+        script_path = os.path.join(os.path.dirname(__file__), "..", "assets", "default_widget.js")
+        with open(script_path, "r", encoding="utf-8") as f:
+            settings_dict["custom_widget_script"] = f.read()
+    except Exception:
+        pass
 
     client = {
         "client_id": request.client_id,
@@ -94,7 +102,7 @@ async def get_client(client_id: str):
     db = get_db()
     client = await db[CLIENTS].find_one(
         {"client_id": client_id},
-        {"_id": 0, "settings.welcome_message": 1, "settings.theme_color": 1, "name": 1},
+        {"_id": 0, "settings.welcome_message": 1, "settings.theme_color": 1, "settings.menu_options": 1, "settings.chatbot_title": 1, "name": 1},
     )
     if not client:
         raise HTTPException(404, "Client not found")
@@ -104,9 +112,11 @@ async def get_client(client_id: str):
 @router.patch("/{client_id}/settings")
 async def update_client_settings(client_id: str, settings: dict, user: dict = Depends(get_current_user)):
     """Update global (non-setup) settings: welcome_message, theme_color, system_prompt, max_history_turns."""
-    if user.get("role") != "super_admin":
-        raise HTTPException(403, "Only super admins can edit settings")
-    allowed = {"welcome_message", "system_prompt", "theme_color", "max_history_turns"}
+    if user.get("role") != "super_admin" and user.get("client_id") != client_id:
+        raise HTTPException(403, "Only super admins or the institution's admin can edit settings")
+    allowed = {"welcome_message", "system_prompt", "theme_color", "max_history_turns", "menu_options", "chatbot_title"}
+    if user.get("role") == "super_admin":
+        allowed.add("custom_widget_script")
     update_fields = {f"settings.{k}": v for k, v in settings.items() if k in allowed}
     if not update_fields:
         raise HTTPException(400, "No valid settings fields")
@@ -114,6 +124,26 @@ async def update_client_settings(client_id: str, settings: dict, user: dict = De
     db = get_db()
     await db[CLIENTS].update_one({"client_id": client_id}, {"$set": update_fields})
     return {"message": "Settings updated"}
+
+@router.get("/{client_id}/widget.js")
+async def get_widget_script(client_id: str):
+    """Serve the dynamic widget script for a specific client."""
+    db = get_db()
+    client = await db[CLIENTS].find_one({"client_id": client_id}, {"_id": 0, "settings.custom_widget_script": 1})
+    if not client:
+        raise HTTPException(404, "Client not found")
+    
+    script_content = client.get("settings", {}).get("custom_widget_script", "")
+    if not script_content:
+        import os
+        try:
+            script_path = os.path.join(os.path.dirname(__file__), "..", "assets", "default_widget.js")
+            with open(script_path, "r", encoding="utf-8") as f:
+                script_content = f.read()
+        except Exception:
+            script_content = "console.error('Widget script not configured.');"
+
+    return Response(content=script_content, media_type="application/javascript")
 
 
 # ── Setup management ──────────────────────────────────────────────────────────
@@ -355,3 +385,5 @@ async def rotate_widget_token(client_id: str, user: dict = Depends(get_current_u
 async def disable_widget_token(client_id: str, user: dict = Depends(get_current_user)):
     """Deprecated: use DELETE /setups/widget/token instead."""
     return await disable_setup_token(client_id, "widget", user)
+
+

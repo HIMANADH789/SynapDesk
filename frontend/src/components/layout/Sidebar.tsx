@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 
+
+
 const adminNavItems = [
   { href: "/dashboard", label: "Overview", icon: "📊" },
   { href: "/dashboard/documents", label: "Documents", icon: "📄" },
@@ -24,6 +26,7 @@ export default function Sidebar() {
   const { role } = useAuth();
 
   const isSuperAdmin = role === "super_admin";
+
   const navItems = isSuperAdmin ? superAdminNavItems : adminNavItems;
 
   return (

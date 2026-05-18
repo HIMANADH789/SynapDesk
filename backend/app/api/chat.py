@@ -9,7 +9,6 @@ from app.models.chat import ChatRequest, ChatResponse, Source
 from app.providers.base import EmbeddingProvider, LLMProvider, VectorStoreProvider
 from app.services import rag_service, chat_service
 from app.utils.ip_rate_limiter import check_ip_rate_limit
-from app.utils.widget_auth import check_widget_auth
 
 logger = logging.getLogger("app.api.chat")
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -26,7 +25,6 @@ async def chat_query(
 ):
     channel = request.channel or "widget"
     await check_ip_rate_limit(http_request, client_id, channel)
-    await check_widget_auth(http_request, client_id, channel)
     result = await rag_service.query(
         client_id=client_id,
         message=request.message,
@@ -55,7 +53,6 @@ async def chat_stream(
     """Server-Sent Events endpoint. Streams tokens as they are generated."""
     channel = request.channel or "widget"
     await check_ip_rate_limit(http_request, client_id, channel)
-    await check_widget_auth(http_request, client_id, channel)
 
     async def event_generator():
         try:

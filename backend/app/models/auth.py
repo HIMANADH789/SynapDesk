@@ -1,11 +1,12 @@
 from pydantic import BaseModel, EmailStr
 
 
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
     client_id: str
-    role: str = "admin"
+    role: str = "admin"  # "super_admin", "admin"
     setup_key: str = ""  # Required only when role == "super_admin"
 
 

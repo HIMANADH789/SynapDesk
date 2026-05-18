@@ -7,6 +7,7 @@ class ChatRequest(BaseModel):
     message: str
     session_id: Optional[str] = None
     channel: str = "widget"   # "widget" | "web_api" — used for per-setup rate limits + analytics
+    department_code: str = "" # "department_code" to route to specific department
 
 
 class Source(BaseModel):

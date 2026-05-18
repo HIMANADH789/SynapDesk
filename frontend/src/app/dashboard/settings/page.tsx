@@ -18,12 +18,14 @@ function getClientIdFromToken(): string {
 
 const DEFAULTS: ClientSettings = {
   welcome_message: "Hello! How can I help you today?",
+  chatbot_title: "AI Front Desk",
   system_prompt: `You are a helpful front desk assistant for an educational institution.
 Answer questions ONLY based on the provided context. Do not make up information.
 If the context does not contain enough information to answer the question, say so clearly.
 Be concise, friendly, and professional.`,
   theme_color: "#1E40AF",
   max_history_turns: 5,
+  menu_options: [],
 };
 
 export default function SettingsPage() {
@@ -46,14 +48,16 @@ export default function SettingsPage() {
       const s = (profile.client as unknown as { settings?: Partial<ClientSettings> })?.settings;
       setSettings({
         welcome_message: s?.welcome_message ?? DEFAULTS.welcome_message,
+        chatbot_title: s?.chatbot_title ?? DEFAULTS.chatbot_title,
         system_prompt: s?.system_prompt ?? DEFAULTS.system_prompt,
         theme_color: s?.theme_color ?? DEFAULTS.theme_color,
         max_history_turns: s?.max_history_turns ?? DEFAULTS.max_history_turns,
+        menu_options: s?.menu_options ?? DEFAULTS.menu_options,
       });
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  const widgetCode = `<script src="${backendUrl}/widget/chatbot-widget.js" data-client-id="${clientId}" data-theme-color="${settings.theme_color}"></script>`;
+  const widgetCode = `<script src="${backendUrl}/api/clients/${clientId}/widget.js" data-client-id="${clientId}" data-theme-color="${settings.theme_color}"></script>`;
 
   function copyCode() {
     navigator.clipboard.writeText(widgetCode);
@@ -116,6 +120,24 @@ export default function SettingsPage() {
               rows={5}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               placeholder={"Hello! 👋\nWelcome to our support system.\nHow can I help you today?"}
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">
+              Chatbot Title
+            </label>
+            <p className="mb-2 text-xs text-gray-400">
+              The title displayed at the top of the chat window.
+            </p>
+            <input
+              type="text"
+              value={settings.chatbot_title}
+              onChange={(e) =>
+                setSettings((s) => ({ ...s, chatbot_title: e.target.value }))
+              }
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder="e.g. AI Front Desk"
             />
           </div>
 
@@ -195,6 +217,117 @@ export default function SettingsPage() {
           <p className="mt-3 text-sm text-red-600">{error}</p>
         )}
 
+        <div className="mt-6 flex items-center gap-3">
+          <button
+            onClick={saveSettings}
+            disabled={saving}
+            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Settings"}
+          </button>
+          {saved && (
+            <span className="text-sm text-green-600">Settings saved!</span>
+          )}
+        </div>
+      </div>
+
+      {/* Menu Options & FAQs */}
+      <div className="rounded-xl bg-white p-6 shadow-sm">
+        <div className="mb-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Menu Options &amp; FAQs</h2>
+            <p className="text-sm text-gray-500">
+              Create floating menu topics that appear above your widget, and the questions they contain.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setSettings((s) => ({
+                ...s,
+                menu_options: [
+                  ...(s.menu_options || []),
+                  { id: crypto.randomUUID(), label: "New Topic", sub_questions: [] }
+                ]
+              }));
+            }}
+            className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200"
+          >
+            + Add Topic
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {(settings.menu_options || []).map((menu, mIndex) => (
+            <div key={menu.id} className="rounded-lg border border-gray-200 p-4">
+              <div className="mb-3 flex items-center gap-3">
+                <input
+                  value={menu.label}
+                  onChange={(e) => {
+                    const newOpts = [...(settings.menu_options || [])];
+                    newOpts[mIndex].label = e.target.value;
+                    setSettings({ ...settings, menu_options: newOpts });
+                  }}
+                  className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold"
+                  placeholder="Topic Name (e.g. Admissions)"
+                />
+                <button
+                  onClick={() => {
+                    const newOpts = (settings.menu_options || []).filter((_, i) => i !== mIndex);
+                    setSettings({ ...settings, menu_options: newOpts });
+                  }}
+                  className="text-red-500 hover:text-red-700"
+                  title="Remove Topic"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-2 pl-4">
+                <p className="text-xs font-medium text-gray-500">Sub-Questions (FAQs):</p>
+                {menu.sub_questions.map((sq, sqIndex) => (
+                  <div key={sqIndex} className="flex items-center gap-2">
+                    <input
+                      value={sq}
+                      onChange={(e) => {
+                        const newOpts = [...(settings.menu_options || [])];
+                        newOpts[mIndex].sub_questions[sqIndex] = e.target.value;
+                        setSettings({ ...settings, menu_options: newOpts });
+                      }}
+                      className="flex-1 rounded border border-gray-200 px-2 py-1 text-sm text-gray-700"
+                      placeholder="e.g. How do I apply?"
+                    />
+                    <button
+                      onClick={() => {
+                        const newOpts = [...(settings.menu_options || [])];
+                        newOpts[mIndex].sub_questions = newOpts[mIndex].sub_questions.filter((_, i) => i !== sqIndex);
+                        setSettings({ ...settings, menu_options: newOpts });
+                      }}
+                      className="text-gray-400 hover:text-red-500"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => {
+                    const newOpts = [...(settings.menu_options || [])];
+                    newOpts[mIndex].sub_questions.push("");
+                    setSettings({ ...settings, menu_options: newOpts });
+                  }}
+                  className="mt-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                >
+                  + Add Question
+                </button>
+              </div>
+            </div>
+          ))}
+          {!(settings.menu_options?.length) && (
+            <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
+              No menu topics created yet. Click &quot;Add Topic&quot; to start.
+            </div>
+          )}
+        </div>
+        
         <div className="mt-6 flex items-center gap-3">
           <button
             onClick={saveSettings}

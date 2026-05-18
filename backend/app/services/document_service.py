@@ -211,8 +211,10 @@ async def upload_document(
 
 async def list_documents(client_id: str) -> list[dict]:
     db = get_db()
+    query = {"client_id": client_id}
+
     cursor = db[DOCUMENTS].find(
-        {"client_id": client_id},
+        query,
         {"chunks": 0},
     ).sort("uploaded_at", -1)
     return await cursor.to_list(length=100)

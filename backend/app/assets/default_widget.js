@@ -143,7 +143,7 @@
       <span class="robo" title="AI Robo">🤖</span>
       <span class="card">
         Need Help?<br/>
-        <span class="quote">"Ask me anything about admissions, courses, campus life!"</span>
+        <span class="quote">"Ask me anything!"</span>
       </span>
     `;
 
@@ -338,6 +338,10 @@
       .then(res => res.json())
       .then(data => {
         f("bot", data?.settings?.welcome_message || "Hello! How can I help you today?");
+        if (data?.settings?.chatbot_title) {
+          let titleEl = o.querySelector("h3");
+          if (titleEl) titleEl.textContent = data.settings.chatbot_title;
+        }
         if (data?.settings?.menu_options) {
           renderMenuOptions(data.settings.menu_options);
         }

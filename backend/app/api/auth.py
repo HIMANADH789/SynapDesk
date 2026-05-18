@@ -170,3 +170,5 @@ async def impersonate(client_id: str, body: dict, user: dict = Depends(get_curre
         "institution_name": client.get("name", client_id),
         "client_id": client_id,
     }
+
+

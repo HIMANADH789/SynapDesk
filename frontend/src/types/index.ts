@@ -90,11 +90,20 @@ export interface UsageStats {
   remaining_llm_quota: number;
 }
 
+export interface MenuOption {
+  id: string;
+  label: string;
+  sub_questions: string[];
+}
+
 export interface ClientSettings {
-  welcome_message: string;
+  welcome_message?: string;
+  theme_color?: string;
+  chatbot_title?: string;
+  custom_widget_script?: string;
+  menu_options?: MenuOption[];
   system_prompt?: string;
-  theme_color: string;
-  max_history_turns: number;
+  max_history_turns?: number;
   setups?: Record<string, Record<string, unknown>>;
 }
 

@@ -94,15 +94,25 @@ def get_setup(settings: dict, channel: str) -> dict:
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
 
+class MenuOption(BaseModel):
+    id: str
+    label: str
+    sub_questions: list[str] = Field(default_factory=list)
+
+
 class ClientSettings(BaseModel):
     # Global chat behaviour
     welcome_message: str = "Hello! How can I help you today?"
     system_prompt: Optional[str] = None
     max_history_turns: int = 5
     theme_color: str = "#1E40AF"
+    chatbot_title: str = "AI Front Desk"
+    custom_widget_script: str = ""
+    menu_options: list[MenuOption] = Field(default_factory=list)
 
     # Per-setup configs (widget, web_api, whatsapp, facebook, telegram, slack)
     setups: Dict[str, Any] = Field(default_factory=default_setups)
+
 
 
 class ClientCreate(BaseModel):
@@ -110,6 +120,7 @@ class ClientCreate(BaseModel):
     name: str
     domain: str = ""
     settings: ClientSettings = Field(default_factory=ClientSettings)
+
 
 
 class ClientResponse(BaseModel):

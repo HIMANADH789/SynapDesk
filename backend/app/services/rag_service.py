@@ -124,6 +124,8 @@ def _build_where_filter(metadata: dict) -> Optional[dict]:
     return {"$and": conditions}
 
 
+
+
 # ── Enhancement 5: HyDE ──────────────────────────────────────────────────────
 
 _HYDE_PROMPT = """Write a brief, factual answer to this question as if it came from an official document.
