@@ -37,10 +37,7 @@ FALLBACK_MESSAGE = (
     "Please contact the administration directly for further assistance."
 )
 
-DEFAULT_SYSTEM_PROMPT = """You are a helpful front desk assistant for an educational institution.
-Answer questions based on the provided context. Do not make up information.
-If the context does not contain enough information, say so clearly.
-Be concise, friendly, and professional."""
+DEFAULT_SYSTEM_PROMPT = """You are a knowledgeable and friendly AI assistant. You help users by answering their questions accurately using the information available to you. You speak in a warm, professional, and conversational tone. You never fabricate information."""
 
 CONVERSATIONAL_TRIGGERS = {
     "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
@@ -175,20 +172,19 @@ User question: "{query}"
 Retrieved context snippets (these are what we found in our knowledge base):
 {context_snippets}
 
-Decide if the question is ambiguous. A question is ambiguous when:
-- Multiple distinct topics / categories are retrieved and it's unclear which applies
-- The question lacks a key detail (e.g., which year, which department, which course)
-- The retrieved chunks give conflicting or incompatible answers
+Decide if the user's question is too vague or broad to answer accurately based on the retrieved snippets.
+A question needs clarification when:
+- The context provides multiple completely different answers depending on a missing detail (e.g., year, department).
+- The question is out of context and you need more specifics to help them.
 
-If clarification is needed, write ONE short, friendly clarifying question (max 15 words).
-If the question is clear enough to answer well, return needs_clarification: false.
-
-Be conservative — only ask for clarification when it genuinely matters for accuracy.
+If you can provide a helpful, general answer covering the possibilities, do that instead of asking for clarification.
+If you DO need clarification, write ONE short, polite, and customer-friendly question (max 15 words) asking for the missing detail.
+Otherwise, return needs_clarification: false.
 
 Respond ONLY with valid JSON (no markdown, no explanation):
-{{"needs_clarification": true, "question": "Which department are you asking about?"}}
+{"needs_clarification": true, "question": "Which department are you asking about?"}
 or
-{{"needs_clarification": false}}"""
+{"needs_clarification": false}"""
 
 
 async def _check_clarification(
@@ -243,9 +239,8 @@ async def _check_clarification(
     # ── Heuristic 2: very low confidence ─────────────────────────────────────
     scores = [c.get("score", 0.0) for c in candidates]
     top_score = max(scores) if scores else 0.0
-    # Only flag when top retrieval score is very low and we have plenty of candidates
-    # (raises bar vs. previous 0.45 threshold — reduces false positives)
-    low_confidence = top_score < 0.30 and len(candidates) >= 4
+    # Flag when top retrieval score is fairly low and there are multiple candidates
+    low_confidence = top_score < 0.35 and len(candidates) >= 3
 
     if not has_metadata_ambiguity and not low_confidence:
         return None
@@ -341,7 +336,7 @@ async def _retrieve_and_rerank(
         candidates = await vectordb.search(
             client_id,
             sq_embedding,
-            top_k=settings.RETRIEVAL_CANDIDATES,
+            top_k=25,
             where=where_filter,
         )
 
@@ -382,12 +377,14 @@ def _build_rag_prompt(context: str, history_text: str, message: str) -> str:
 {history_text}
 User question: {message}
 
-Instructions:
-- Answer using ONLY the context above.
-- Format your answer in clean plain text. Use short paragraphs or simple numbered/bulleted lists where appropriate.
-- Do NOT use markdown symbols like **, *, ##, or backticks in your response.
-- If the context is insufficient, say so and suggest contacting the administration.
-- Be concise and direct."""
+Answer rules:
+1. Answer using ONLY the context above. You must include the COMPLETE information — reproduce every detail, rule, penalty, consequence, deadline, and step exactly as stated. If the context says "which may include cancellation of the exam", you MUST include that phrase. Never drop or summarize away parts of sentences.
+2. Do NOT invent or assume any information not present in the context.
+3. Speak naturally and directly. Never say "the context states", "based on the document", "not specified in the provided context", or similar phrases. Just answer the question as if you know it.
+4. Do NOT suggest contacting anyone or any department unless the question is completely unanswerable from the context. If you have the answer, just give it.
+5. Do NOT add a "Sources" section or mention any filenames.
+6. Format: use bullet points (•) for lists, short paragraphs, normal sentence casing. No markdown symbols (**, ##, backticks).
+7. Keep answers complete but not bloated — no filler paragraphs, no repeating the same point in different words."""
 
 
 # ── Public API: non-streaming ─────────────────────────────────────────────────

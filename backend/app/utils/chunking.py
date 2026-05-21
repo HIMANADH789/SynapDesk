@@ -1,7 +1,7 @@
 def recursive_chunk(
     text: str,
-    chunk_size: int = 500,
-    overlap: int = 50,
+    chunk_size: int = 600,
+    overlap: int = 100,
     separators: list[str] | None = None,
 ) -> list[str]:
     if separators is None:

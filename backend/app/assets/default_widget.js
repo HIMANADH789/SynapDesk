@@ -6,7 +6,7 @@
     // Attributes
     let y = s.getAttribute("data-client-id") || "default",
         d = s.getAttribute("data-theme-color") || "#1E40AF",
-        w = s.getAttribute("data-api-url") || s.src.replace(/\/widget\/.*/, ""),
+        w = s.getAttribute("data-api-url") || (s.src ? s.src.split("/api/clients/")[0] : ""),
         T = s.getAttribute("data-token") || "";
 
     // Container and Shadow DOM

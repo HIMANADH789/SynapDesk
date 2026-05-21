@@ -48,8 +48,8 @@ class Settings(BaseSettings):
     CACHE_ENABLED: bool = True              # Semantic query cache
     CACHE_SIMILARITY_THRESHOLD: float = 0.85  # Cosine sim threshold for cache hit
     CACHE_TTL_HOURS: int = 24              # How long cached answers stay valid
-    RETRIEVAL_CANDIDATES: int = 15         # Candidates fetched before reranking
-    RETRIEVAL_TOP_K: int = 4              # Final chunks after reranking
+    RETRIEVAL_CANDIDATES: int = 30         # Candidates fetched before reranking
+    RETRIEVAL_TOP_K: int = 8              # Final chunks after reranking
 
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000"
