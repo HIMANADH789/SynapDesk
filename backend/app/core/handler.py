@@ -20,43 +20,58 @@ from app.db.collections import CLIENTS
 logger = logging.getLogger(__name__)
 
 
+# Add logging to debug provider initialization
+logger = logging.getLogger("ProviderInitialization")
+
+
 async def _build_providers():
     """Instantiate LLM/embedding/vectordb providers from settings."""
     from app.config import settings as app_settings
     from app.providers.vectordb.chromadb import ChromaDBProvider
+
+    logger.debug("Building providers based on settings.")
 
     llm = None
     # Flexible LLM selection based on .env and available keys
     if app_settings.LLM_PROVIDER.lower() == "gemini" and app_settings.GEMINI_API_KEY:
         from app.providers.llm.gemini import GeminiProvider
         llm = GeminiProvider(api_key=app_settings.GEMINI_API_KEY, model=app_settings.GEMINI_MODEL)
+        logger.debug("Initialized GeminiProvider.")
     elif app_settings.LLM_PROVIDER.lower() == "groq" and app_settings.GROQ_API_KEY:
         from app.providers.llm.groq import GroqProvider
         llm = GroqProvider(api_key=app_settings.GROQ_API_KEY, model=app_settings.GROQ_MODEL)
+        logger.debug("Initialized GroqProvider.")
     elif app_settings.LLM_PROVIDER.lower() == "ollama":
         from app.providers.llm.ollama import OllamaProvider
         llm = OllamaProvider(base_url=app_settings.OLLAMA_URL)
+        logger.debug("Initialized OllamaProvider.")
 
     # Fallback order if primary is missing
     if not llm and app_settings.GEMINI_API_KEY:
         from app.providers.llm.gemini import GeminiProvider
         llm = GeminiProvider(api_key=app_settings.GEMINI_API_KEY, model=app_settings.GEMINI_MODEL)
+        logger.debug("Fallback to GeminiProvider.")
     if not llm and app_settings.GROQ_API_KEY:
         from app.providers.llm.groq import GroqProvider
         llm = GroqProvider(api_key=app_settings.GROQ_API_KEY, model=app_settings.GROQ_MODEL)
+        logger.debug("Fallback to GroqProvider.")
     if not llm:
         from app.providers.llm.ollama import OllamaProvider
         llm = OllamaProvider(base_url=app_settings.OLLAMA_URL)
+        logger.debug("Fallback to OllamaProvider.")
 
     vectordb = ChromaDBProvider()
+    logger.debug("Initialized ChromaDBProvider.")
 
     # Try to import Google embedding provider; fall back gracefully
     try:
         from app.providers.embeddings.google import GoogleEmbeddingProvider
         embeddings = GoogleEmbeddingProvider(api_key=app_settings.GEMINI_API_KEY)
+        logger.debug("Initialized GoogleEmbeddingProvider.")
     except ImportError:
         from app.providers.embeddings.gemini import GeminiEmbeddingProvider
         embeddings = GeminiEmbeddingProvider(api_key=app_settings.GEMINI_API_KEY)
+        logger.debug("Fallback to GeminiEmbeddingProvider.")
 
     return llm, embeddings, vectordb
 

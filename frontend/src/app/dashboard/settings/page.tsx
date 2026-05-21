@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import type { ClientSettings } from "@/types";
+import type { ClientSettings, SubMenu } from "@/types";
+
 
 function getClientIdFromToken(): string {
   if (typeof window === "undefined") return "";
@@ -27,6 +28,10 @@ Be concise, friendly, and professional.`,
   max_history_turns: 5,
   menu_options: [],
 };
+
+function newSubMenu(): SubMenu {
+  return { id: crypto.randomUUID(), label: "New Submenu", sub_questions: [] };
+}
 
 export default function SettingsPage() {
   const [clientId, setClientId] = useState("");
@@ -237,7 +242,7 @@ export default function SettingsPage() {
           <div>
             <h2 className="text-lg font-semibold">Menu Options &amp; FAQs</h2>
             <p className="text-sm text-gray-500">
-              Create floating menu topics that appear above your widget, and the questions they contain.
+              Create menu topics → submenus → questions that users can tap in the chatbot.
             </p>
           </div>
           <button
@@ -246,7 +251,7 @@ export default function SettingsPage() {
                 ...s,
                 menu_options: [
                   ...(s.menu_options || []),
-                  { id: crypto.randomUUID(), label: "New Topic", sub_questions: [] }
+                  { id: crypto.randomUUID(), label: "New Topic", submenus: [] }
                 ]
               }));
             }}
@@ -259,12 +264,14 @@ export default function SettingsPage() {
         <div className="space-y-4">
           {(settings.menu_options || []).map((menu, mIndex) => (
             <div key={menu.id} className="rounded-lg border border-gray-200 p-4">
+              {/* ── Menu Topic Row ── */}
               <div className="mb-3 flex items-center gap-3">
+                <span className="text-xs font-bold uppercase tracking-wide text-gray-400 w-14 shrink-0">Menu</span>
                 <input
                   value={menu.label}
                   onChange={(e) => {
                     const newOpts = [...(settings.menu_options || [])];
-                    newOpts[mIndex].label = e.target.value;
+                    newOpts[mIndex] = { ...newOpts[mIndex], label: e.target.value };
                     setSettings({ ...settings, menu_options: newOpts });
                   }}
                   className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold"
@@ -275,59 +282,126 @@ export default function SettingsPage() {
                     const newOpts = (settings.menu_options || []).filter((_, i) => i !== mIndex);
                     setSettings({ ...settings, menu_options: newOpts });
                   }}
-                  className="text-red-500 hover:text-red-700"
+                  className="text-red-400 hover:text-red-600 text-lg leading-none"
                   title="Remove Topic"
                 >
                   ✕
                 </button>
               </div>
 
-              <div className="space-y-2 pl-4">
-                <p className="text-xs font-medium text-gray-500">Sub-Questions (FAQs):</p>
-                {menu.sub_questions.map((sq, sqIndex) => (
-                  <div key={sqIndex} className="flex items-center gap-2">
-                    <input
-                      value={sq}
-                      onChange={(e) => {
-                        const newOpts = [...(settings.menu_options || [])];
-                        newOpts[mIndex].sub_questions[sqIndex] = e.target.value;
-                        setSettings({ ...settings, menu_options: newOpts });
-                      }}
-                      className="flex-1 rounded border border-gray-200 px-2 py-1 text-sm text-gray-700"
-                      placeholder="e.g. How do I apply?"
-                    />
-                    <button
-                      onClick={() => {
-                        const newOpts = [...(settings.menu_options || [])];
-                        newOpts[mIndex].sub_questions = newOpts[mIndex].sub_questions.filter((_, i) => i !== sqIndex);
-                        setSettings({ ...settings, menu_options: newOpts });
-                      }}
-                      className="text-gray-400 hover:text-red-500"
-                    >
-                      ✕
-                    </button>
+              {/* ── Submenus ── */}
+              <div className="space-y-3 pl-4 border-l-2 border-blue-100 ml-2">
+                {(menu.submenus || []).map((sm, smIndex) => (
+                  <div key={sm.id} className="rounded-lg border border-blue-100 bg-blue-50/40 p-3">
+                    {/* Submenu row */}
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className="text-xs font-bold uppercase tracking-wide text-blue-400 w-20 shrink-0">Submenu</span>
+                      <input
+                        value={sm.label}
+                        onChange={(e) => {
+                          const newOpts = [...(settings.menu_options || [])];
+                          const newSubmenus = [...(newOpts[mIndex].submenus || [])];
+                          newSubmenus[smIndex] = { ...newSubmenus[smIndex], label: e.target.value };
+                          newOpts[mIndex] = { ...newOpts[mIndex], submenus: newSubmenus };
+                          setSettings({ ...settings, menu_options: newOpts });
+                        }}
+                        className="flex-1 rounded-lg border border-blue-200 px-3 py-1 text-sm font-medium"
+                        placeholder="Submenu Name (e.g. UG Admissions)"
+                      />
+                      <button
+                        onClick={() => {
+                          const newOpts = [...(settings.menu_options || [])];
+                          newOpts[mIndex] = {
+                            ...newOpts[mIndex],
+                            submenus: newOpts[mIndex].submenus.filter((_, i) => i !== smIndex)
+                          };
+                          setSettings({ ...settings, menu_options: newOpts });
+                        }}
+                        className="text-blue-300 hover:text-red-500"
+                        title="Remove Submenu"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Sub-Questions */}
+                    <div className="space-y-1.5 pl-4 border-l border-blue-200 ml-2">
+                      <p className="text-xs font-medium text-gray-400">Questions:</p>
+                      {(sm.sub_questions || []).map((sq, sqIndex) => (
+                        <div key={sqIndex} className="flex items-center gap-2">
+                          <input
+                            value={sq}
+                            onChange={(e) => {
+                              const newOpts = [...(settings.menu_options || [])];
+                              const newSubmenus = [...newOpts[mIndex].submenus];
+                              const newQs = [...newSubmenus[smIndex].sub_questions];
+                              newQs[sqIndex] = e.target.value;
+                              newSubmenus[smIndex] = { ...newSubmenus[smIndex], sub_questions: newQs };
+                              newOpts[mIndex] = { ...newOpts[mIndex], submenus: newSubmenus };
+                              setSettings({ ...settings, menu_options: newOpts });
+                            }}
+                            className="flex-1 rounded border border-gray-200 px-2 py-1 text-sm text-gray-700"
+                            placeholder="e.g. How do I apply?"
+                          />
+                          <button
+                            onClick={() => {
+                              const newOpts = [...(settings.menu_options || [])];
+                              const newSubmenus = [...newOpts[mIndex].submenus];
+                              newSubmenus[smIndex] = {
+                                ...newSubmenus[smIndex],
+                                sub_questions: newSubmenus[smIndex].sub_questions.filter((_, i) => i !== sqIndex)
+                              };
+                              newOpts[mIndex] = { ...newOpts[mIndex], submenus: newSubmenus };
+                              setSettings({ ...settings, menu_options: newOpts });
+                            }}
+                            className="text-gray-300 hover:text-red-500"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => {
+                          const newOpts = [...(settings.menu_options || [])];
+                          const newSubmenus = [...newOpts[mIndex].submenus];
+                          newSubmenus[smIndex] = {
+                            ...newSubmenus[smIndex],
+                            sub_questions: [...newSubmenus[smIndex].sub_questions, ""]
+                          };
+                          newOpts[mIndex] = { ...newOpts[mIndex], submenus: newSubmenus };
+                          setSettings({ ...settings, menu_options: newOpts });
+                        }}
+                        className="mt-1 text-xs font-medium text-blue-500 hover:text-blue-700"
+                      >
+                        + Add Question
+                      </button>
+                    </div>
                   </div>
                 ))}
+
                 <button
                   onClick={() => {
                     const newOpts = [...(settings.menu_options || [])];
-                    newOpts[mIndex].sub_questions.push("");
+                    newOpts[mIndex] = {
+                      ...newOpts[mIndex],
+                      submenus: [...(newOpts[mIndex].submenus || []), newSubMenu()]
+                    };
                     setSettings({ ...settings, menu_options: newOpts });
                   }}
-                  className="mt-1 text-xs font-medium text-blue-600 hover:text-blue-800"
+                  className="text-sm font-medium text-blue-600 hover:text-blue-800 border border-blue-200 rounded-lg px-3 py-1 hover:bg-blue-50 transition-colors"
                 >
-                  + Add Question
+                  + Add Submenu
                 </button>
               </div>
             </div>
           ))}
           {!(settings.menu_options?.length) && (
             <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
-              No menu topics created yet. Click &quot;Add Topic&quot; to start.
+              No menu topics yet. Click &quot;Add Topic&quot; to start.
             </div>
           )}
         </div>
-        
+
         <div className="mt-6 flex items-center gap-3">
           <button
             onClick={saveSettings}

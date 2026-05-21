@@ -104,26 +104,6 @@
     .typing span:nth-child(3) { animation-delay: 0.32s; }
     @keyframes bounce { 0%,80%,100% { transform: scale(0); } 40% { transform: scale(1); } }
 
-    .menu-bubbles {
-      position: fixed; bottom: 120px; right: 32px;
-      display: flex; flex-direction: column; gap: 10px; align-items: flex-end;
-      z-index: 99999;
-      transition: opacity 0.2s;
-    }
-    .menu-bubbles.hidden { display: none; }
-    .menu-bubble {
-      background: #fff; color: ${d}; border: 1.5px solid ${d};
-      padding: 10px 16px; border-radius: 20px; font-size: 14px; font-weight: 600;
-      cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-      transform-origin: right center;
-      animation: swing 3s infinite ease-in-out;
-      transition: background 0.2s, color 0.2s;
-    }
-    .menu-bubble:hover { background: ${d}; color: #fff; animation-play-state: paused; }
-    @keyframes swing {
-      0%, 100% { transform: rotate(0deg); }
-      50% { transform: rotate(-3deg) translateY(-2px); }
-    }
     .quick-replies {
       display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px;
     }
@@ -133,6 +113,18 @@
       cursor: pointer; transition: background 0.2s;
     }
     .quick-reply-btn:hover { background: #bae6fd; }
+    .submenu-chip {
+      background: #eff6ff; color: #1d4ed8; border-color: #93c5fd;
+      font-weight: 600;
+    }
+    .submenu-chip:hover { background: #dbeafe; }
+    .menu-option-btn {
+      background: #fff; color: ${d}; border: 1.5px solid ${d};
+      padding: 9px 16px; border-radius: 14px; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: background 0.18s, color 0.18s;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .menu-option-btn:hover { background: ${d}; color: #fff; }
 
     @media (max-width: 480px) { .chat-panel { width: calc(100vw - 32px); right: 16px; bottom: 88px; height: 70vh; } }
   `;
@@ -153,12 +145,9 @@
     l.className = "widget-btn";
     l.innerHTML = welcomeCard;
 
-    let menuContainer = null;
-
     l.onclick = () => {
       r = !r;
       o.classList.toggle("open", r);
-      if (menuContainer) menuContainer.classList.toggle("hidden", r);
       if (r) {
         l.innerHTML = `<span class="robo" title="AI Robo">🤖</span>`;
         u && u.focus();
@@ -197,7 +186,6 @@
       e.stopPropagation();
       r = false;
       o.classList.remove("open");
-      if (menuContainer) menuContainer.classList.remove("hidden");
       l.innerHTML = welcomeCard;
     };
 
@@ -299,38 +287,75 @@
       sendMsg(n);
     };
 
-    function renderMenuOptions(menuOptions) {
-      if (!menuOptions || menuOptions.length === 0) return;
-      menuContainer = document.createElement("div");
-      menuContainer.className = "menu-bubbles";
-      menuOptions.forEach((menu, idx) => {
-        let btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "menu-bubble";
-        btn.textContent = menu.label;
-        btn.style.animationDelay = (idx * 0.2) + "s";
-        btn.onclick = () => {
-          if (!r) l.click();
-          if (menu.sub_questions && menu.sub_questions.length > 0) {
-            let t = f("bot", "Common questions about " + menu.label + ":");
-            let qr = document.createElement("div");
-            qr.className = "quick-replies";
-            menu.sub_questions.forEach(q => {
-              if (!q.trim()) return;
-              let qb = document.createElement("button");
-              qb.type = "button";
-              qb.className = "quick-reply-btn";
-              qb.textContent = q;
-              qb.onclick = () => sendMsg(q);
-              qr.appendChild(qb);
-            });
-            t.appendChild(qr);
+    function renderSubQuestions(subQuestions) {
+      let qr = document.createElement("div");
+      qr.className = "quick-replies";
+      subQuestions.forEach(q => {
+        if (!q || !q.trim()) return;
+        let qb = document.createElement("button");
+        qb.type = "button";
+        qb.className = "quick-reply-btn";
+        qb.textContent = q;
+        qb.onclick = () => sendMsg(q);
+        qr.appendChild(qb);
+      });
+      return qr;
+    }
+
+    function renderSubmenuChips(submenus) {
+      let msg = f("bot", "Choose a topic:");
+      let chips = document.createElement("div");
+      chips.className = "quick-replies";
+      submenus.forEach(sm => {
+        if (!sm.label) return;
+        let chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "quick-reply-btn submenu-chip";
+        chip.textContent = sm.label;
+        chip.onclick = () => {
+          // Disable all sibling chips to lock selection
+          chips.querySelectorAll("button").forEach(b => { b.disabled = true; b.style.opacity = "0.5"; });
+          chip.style.opacity = "1";
+          chip.style.fontWeight = "700";
+          // Show sub-questions
+          if (sm.sub_questions && sm.sub_questions.length > 0) {
+            let qMsg = f("bot", "Questions about \"" + sm.label + "\":");
+            qMsg.appendChild(renderSubQuestions(sm.sub_questions));
             a.scrollTop = a.scrollHeight;
           }
         };
-        menuContainer.appendChild(btn);
+        chips.appendChild(chip);
       });
-      p.appendChild(menuContainer);
+      msg.appendChild(chips);
+      a.scrollTop = a.scrollHeight;
+    }
+
+    function renderMenuOptions(menuOptions) {
+      if (!menuOptions || menuOptions.length === 0) return;
+      // Render menu options as chips inside the chat
+      let msg = f("bot", "How can I help you? Choose a topic:");
+      let chips = document.createElement("div");
+      chips.className = "quick-replies";
+      chips.style.marginTop = "10px";
+      menuOptions.forEach(menu => {
+        if (!menu.label) return;
+        let btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "menu-option-btn";
+        btn.textContent = menu.label;
+        btn.onclick = () => {
+          // Lock menu chips
+          chips.querySelectorAll("button").forEach(b => { b.disabled = true; b.style.opacity = "0.5"; });
+          btn.style.opacity = "1";
+          let submenus = menu.submenus || [];
+          if (submenus.length > 0) {
+            renderSubmenuChips(submenus);
+          }
+        };
+        chips.appendChild(btn);
+      });
+      msg.appendChild(chips);
+      a.scrollTop = a.scrollHeight;
     }
 
     // Initial Welcome Message

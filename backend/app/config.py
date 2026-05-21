@@ -1,4 +1,8 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
+import logging
+
+# Add logging to debug settings loading
+logger = logging.getLogger("Settings")
 
 
 class Settings(BaseSettings):
@@ -53,6 +57,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        logger.debug("Settings loaded: %s", self.dict())
 
 
 settings = Settings()

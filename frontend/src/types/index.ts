@@ -90,10 +90,16 @@ export interface UsageStats {
   remaining_llm_quota: number;
 }
 
-export interface MenuOption {
+export interface SubMenu {
   id: string;
   label: string;
   sub_questions: string[];
+}
+
+export interface MenuOption {
+  id: string;
+  label: string;
+  submenus: SubMenu[];
 }
 
 export interface ClientSettings {

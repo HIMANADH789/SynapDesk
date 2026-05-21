@@ -94,10 +94,16 @@ def get_setup(settings: dict, channel: str) -> dict:
 
 # ── Pydantic models ────────────────────────────────────────────────────────────
 
-class MenuOption(BaseModel):
+class SubMenu(BaseModel):
     id: str
     label: str
     sub_questions: list[str] = Field(default_factory=list)
+
+
+class MenuOption(BaseModel):
+    id: str
+    label: str
+    submenus: list[SubMenu] = Field(default_factory=list)
 
 
 class ClientSettings(BaseModel):
