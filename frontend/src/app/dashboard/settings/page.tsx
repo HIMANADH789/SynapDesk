@@ -43,13 +43,15 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
 
   const [settings, setSettings] = useState<ClientSettings>(DEFAULTS);
+  const [setups, setSetups] = useState<any[]>([]);
+  const [setupConfigs, setSetupConfigs] = useState<Record<string, any>>({});
+  const [savingSetups, setSavingSetups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const id = getClientIdFromToken();
     setClientId(id);
 
     api.getMyProfile().then((profile) => {
-      // settings are stored under profile.client.settings in MongoDB
       const s = (profile.client as unknown as { settings?: Partial<ClientSettings> })?.settings;
       setSettings({
         welcome_message: s?.welcome_message ?? DEFAULTS.welcome_message,
@@ -59,8 +61,35 @@ export default function SettingsPage() {
         max_history_turns: s?.max_history_turns ?? DEFAULTS.max_history_turns,
         menu_options: s?.menu_options ?? DEFAULTS.menu_options,
       });
-    }).catch(() => {}).finally(() => setLoading(false));
+    }).catch(() => {});
+
+    if (id) {
+      api.listSetups(id).then(res => {
+        setSetups(res.setups);
+        // Load detailed config for enabled channels (like whatsapp)
+        res.setups.filter(s => s.enabled && ["whatsapp", "facebook", "telegram", "slack"].includes(s.channel)).forEach(setup => {
+          api.getSetupConfig(id, setup.channel).then(detail => {
+            setSetupConfigs(prev => ({ ...prev, [setup.channel]: detail.config }));
+          }).catch(() => {});
+        });
+      }).catch(() => {}).finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
   }, []);
+
+  async function saveIntegrationConfig(channel: string) {
+    if (!clientId) return;
+    setSavingSetups(prev => ({ ...prev, [channel]: true }));
+    try {
+      await api.updateSetupConfig(clientId, channel, setupConfigs[channel]);
+      alert(`${channel} configuration saved!`);
+    } catch (err: any) {
+      alert(`Failed to save ${channel}: ` + err.message);
+    } finally {
+      setSavingSetups(prev => ({ ...prev, [channel]: false }));
+    }
+  }
 
   const widgetCode = `<script src="${backendUrl}/api/clients/${clientId}/widget.js" data-client-id="${clientId}" data-theme-color="${settings.theme_color}"></script>`;
 
@@ -447,6 +476,92 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {/* Integrations & Channels */}
+      {setups.filter(s => s.enabled && s.channel !== "widget" && s.channel !== "web_api").length > 0 && (
+        <div className="rounded-xl bg-white p-6 shadow-sm">
+          <h2 className="mb-1 text-lg font-semibold">Integrations &amp; Channels</h2>
+          <p className="mb-5 text-sm text-gray-500">
+            Configure credentials for third-party integrations enabled for your account.
+          </p>
+
+          <div className="space-y-6">
+            {setups.filter(s => s.enabled && s.channel !== "widget" && s.channel !== "web_api").map(setup => (
+              <div key={setup.channel} className="rounded-lg border border-gray-200 p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="text-xl">{setup.emoji}</span>
+                  <h3 className="font-semibold text-gray-800">{setup.label}</h3>
+                </div>
+
+                {setupConfigs[setup.channel] ? (
+                  <div className="space-y-4">
+                    {/* Channel specific fields */}
+                    {setup.channel === "whatsapp" && (
+                      <>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-gray-700">Phone Number ID</label>
+                          <input
+                            type="text"
+                            value={setupConfigs[setup.channel].phone_number_id || ""}
+                            onChange={(e) => setSetupConfigs(prev => ({ ...prev, [setup.channel]: { ...prev[setup.channel], phone_number_id: e.target.value } }))}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-gray-700">Access Token</label>
+                          <input
+                            type="password"
+                            value={setupConfigs[setup.channel].access_token || ""}
+                            onChange={(e) => setSetupConfigs(prev => ({ ...prev, [setup.channel]: { ...prev[setup.channel], access_token: e.target.value } }))}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                            placeholder={setupConfigs[setup.channel].access_token === "••••••••••••••••" ? "••••••••••••••••" : ""}
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-medium text-gray-700">Verify Token</label>
+                          <input
+                            type="password"
+                            value={setupConfigs[setup.channel].verify_token || ""}
+                            onChange={(e) => setSetupConfigs(prev => ({ ...prev, [setup.channel]: { ...prev[setup.channel], verify_token: e.target.value } }))}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                            placeholder={setupConfigs[setup.channel].verify_token === "••••••••••••••••" ? "••••••••••••••••" : ""}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* Generic Fallback for other channels if needed */}
+                    {setup.channel !== "whatsapp" && Object.keys(setupConfigs[setup.channel]).map(key => {
+                      if (["enabled", "rate_limit_rpm", "rate_limit_rpd", "max_queries_per_session"].includes(key)) return null;
+                      return (
+                        <div key={key}>
+                          <label className="mb-1 block text-sm font-medium text-gray-700">{key.replace(/_/g, ' ').toUpperCase()}</label>
+                          <input
+                            type="text"
+                            value={setupConfigs[setup.channel][key] || ""}
+                            onChange={(e) => setSetupConfigs(prev => ({ ...prev, [setup.channel]: { ...prev[setup.channel], [key]: e.target.value } }))}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                          />
+                        </div>
+                      );
+                    })}
+
+                    <button
+                      onClick={() => saveIntegrationConfig(setup.channel)}
+                      disabled={savingSetups[setup.channel]}
+                      className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {savingSetups[setup.channel] ? "Saving..." : `Save ${setup.label}`}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="animate-pulse flex h-10 w-full bg-gray-100 rounded"></div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Quick Guide */}
       <div className="rounded-xl bg-white p-6 shadow-sm">

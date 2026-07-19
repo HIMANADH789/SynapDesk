@@ -30,6 +30,7 @@ export default function InstitutionDetailPage() {
   const [customScript, setCustomScript] = useState("");
   const [savingScript, setSavingScript] = useState(false);
   const [scriptSaved, setScriptSaved] = useState(false);
+  const [setups, setSetups] = useState<any[]>([]);
 
   useEffect(() => {
     if (role && role !== "super_admin") {
@@ -44,6 +45,7 @@ export default function InstitutionDetailPage() {
       .then((stats) => {
         setData(stats);
         if (page === 1) {
+          api.listSetups(clientId).then(res => setSetups(res.setups)).catch(() => {});
           return api.getClientConfig(clientId).then(config => {
             if (config?.settings?.custom_widget_script !== undefined) {
               setCustomScript(config.settings.custom_widget_script || "");
@@ -70,6 +72,26 @@ export default function InstitutionDetailPage() {
   if (!data) return null;
 
   const totalPages = Math.ceil(data.logs_total / data.logs_page_size);
+
+  async function toggleSetup(channel: string, currentStatus: boolean) {
+    try {
+      await api.toggleSetup(clientId, channel, !currentStatus);
+      // Refresh setups
+      const res = await api.listSetups(clientId);
+      setSetups(res.setups);
+    } catch (e: any) {
+      alert("Failed to toggle: " + e.message);
+    }
+  }
+
+  async function saveLimits(channel: string, rpm: number, rpd: number) {
+    try {
+      await api.updateSetupConfig(clientId, channel, { rate_limit_rpm: rpm, rate_limit_rpd: rpd });
+      alert(`Limits saved for ${channel}`);
+    } catch (e: any) {
+      alert("Failed to save limits: " + e.message);
+    }
+  }
 
   async function saveScript() {
     setSavingScript(true);
@@ -207,6 +229,77 @@ export default function InstitutionDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Channel Features & Limits */}
+      {setups.length > 0 && (
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white p-5 mt-6">
+          <h2 className="mb-2 font-semibold text-gray-800">Channel Features &amp; Limits</h2>
+          <p className="mb-4 text-sm text-gray-500">Enable/disable integrations and set rate limits for this institution.</p>
+          <div className="space-y-4">
+            {setups.map((setup, idx) => (
+              <div key={setup.channel} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 border border-gray-100 rounded-lg bg-gray-50/50">
+                <div className="flex items-center gap-3 w-1/4">
+                  <span className="text-xl">{setup.emoji}</span>
+                  <div>
+                    <p className="font-medium text-sm text-gray-900">{setup.label}</p>
+                    <p className="text-xs text-gray-500">{setup.channel}</p>
+                  </div>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row items-center gap-3 flex-1">
+                  <div className="flex flex-col">
+                    <label className="text-xs text-gray-500 mb-1">Req / min</label>
+                    <input 
+                      type="number"
+                      className="border border-gray-200 rounded px-2 py-1 text-sm w-20"
+                      value={setup.rate_limit_rpm}
+                      onChange={(e) => {
+                        const newSetups = [...setups];
+                        newSetups[idx].rate_limit_rpm = parseInt(e.target.value) || 0;
+                        setSetups(newSetups);
+                      }}
+                    />
+                  </div>
+                  <div className="flex flex-col">
+                    <label className="text-xs text-gray-500 mb-1">Req / day</label>
+                    <input 
+                      type="number"
+                      className="border border-gray-200 rounded px-2 py-1 text-sm w-24"
+                      value={setup.rate_limit_rpd}
+                      onChange={(e) => {
+                        const newSetups = [...setups];
+                        newSetups[idx].rate_limit_rpd = parseInt(e.target.value) || 0;
+                        setSetups(newSetups);
+                      }}
+                    />
+                  </div>
+                  <div className="flex flex-col mt-4 sm:mt-0">
+                    <button
+                      onClick={() => saveLimits(setup.channel, setup.rate_limit_rpm, setup.rate_limit_rpd)}
+                      className="text-xs bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded font-medium"
+                    >
+                      Save Limits
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 w-1/4 justify-end">
+                  <button
+                    onClick={() => toggleSetup(setup.channel, setup.enabled)}
+                    className={`px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                      setup.enabled 
+                        ? "bg-green-100 text-green-700 hover:bg-green-200" 
+                        : "bg-gray-200 text-gray-600 hover:bg-gray-300"
+                    }`}
+                  >
+                    {setup.enabled ? "ENABLED" : "DISABLED"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Widget Script */}
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white p-5 mt-6">

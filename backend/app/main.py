@@ -63,3 +63,7 @@ app.include_router(clients.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
 app.include_router(integrations.router, prefix="/api")
 app.include_router(integrations.webhook_router, prefix="/api")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

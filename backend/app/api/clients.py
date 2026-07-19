@@ -225,9 +225,10 @@ async def get_setup_config(client_id: str, channel: str, user: dict = Depends(ge
 
 @router.patch("/{client_id}/setups/{channel}")
 async def update_setup_config(client_id: str, channel: str, body: dict, user: dict = Depends(get_current_user)):
-    """Update setup config fields. Super admin only."""
-    if user.get("role") != "super_admin":
-        raise HTTPException(403, "Only super admins can edit setup config")
+    """Update setup config fields. Super admin sets limits, admins set credentials."""
+    is_super = user.get("role") == "super_admin"
+    if not is_super and user.get("client_id") != client_id:
+        raise HTTPException(403, "Access denied")
     if channel not in ALL_SETUPS:
         raise HTTPException(400, f"Unknown channel '{channel}'")
 
@@ -245,19 +246,22 @@ async def update_setup_config(client_id: str, channel: str, body: dict, user: di
 
     current = get_setup(settings, channel)
 
-    # Fields that are always allowed to update
+    # Admins can only edit credentials/origins, Super Admins can edit limits too
     safe_keys = {
-        "rate_limit_rpm", "rate_limit_rpd", "max_queries_per_session",
         "allowed_origins",
-        # Credential fields (channel-specific):
         "phone_number_id", "access_token", "app_secret", "verify_token",
         "page_id", "page_access_token",
         "bot_token", "secret_token", "signing_secret",
     }
+    if is_super:
+        safe_keys.update({"rate_limit_rpm", "rate_limit_rpd", "max_queries_per_session"})
+
     # Merge changes into current config (ignore unknown keys)
     for k, v in body.items():
         if k in safe_keys:
-            current[k] = v
+            # Prevent accidental overwrite if the frontend sends the mask back
+            if v != "••••••••••••••••":
+                current[k] = v
 
     update_path = f"settings.setups.{channel}"
     await db[CLIENTS].update_one(
