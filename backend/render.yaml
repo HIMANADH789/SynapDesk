@@ -6,7 +6,7 @@ services:
     healthCheckPath: /healthz
     envVars:
       - key: WORKERS
-        value: "2"
+        value: "1"
       - key: MONGODB_URI
         sync: false  # You will enter this manually in Render dashboard for security
       - key: DB_NAME

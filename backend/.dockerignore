@@ -12,3 +12,5 @@ venv/
 .dockerignore
 README.md
 scratch/
+
+chroma_data/

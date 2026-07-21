@@ -24,4 +24,4 @@ COPY . .
 EXPOSE 8000
 
 # Run Gunicorn with Uvicorn async workers for production scaling
-CMD ["sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker -w ${WORKERS:-2} -b 0.0.0.0:${PORT:-8000} app.main:app"]
+CMD ["sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker --preload -w ${WORKERS:-1} -b 0.0.0.0:${PORT:-10000} app.main:app"]
