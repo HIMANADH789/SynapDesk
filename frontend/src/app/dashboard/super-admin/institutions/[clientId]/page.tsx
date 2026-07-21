@@ -162,16 +162,84 @@ function SetupCard({ setup, clientId, onToggle }: {
   );
 }
 
+// ── Delete Institution Modal ──────────────────────────────────────────────────
+
+function DeleteInstitutionModal({ client, onClose, onDelete }: { client: ClientRecord; onClose: () => void; onDelete: () => void }) {
+  const [masterKey, setMasterKey] = useState("");
+  const [showKey, setShowKey] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(""); setLoading(true);
+    try {
+      await api.deleteClient(client.client_id, masterKey);
+      onDelete();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete institution.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <div>
+            <h2 className="font-semibold text-gray-900">Delete Institution</h2>
+            <p className="text-xs text-gray-400">{client.name}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4 p-6">
+          <div className="rounded-lg bg-red-50 border border-red-100 p-3 text-xs text-red-800">
+            <strong>Warning:</strong> This will permanently delete <strong>{client.name}</strong> and all associated admins. This action cannot be undone. Enter your master key to confirm.
+          </div>
+          {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</div>}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">Master Key</label>
+            <div className="relative">
+              <input
+                type={showKey ? "text" : "password"}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-16 text-sm font-mono focus:border-red-500 focus:outline-none"
+                value={masterKey}
+                onChange={(e) => setMasterKey(e.target.value)}
+                placeholder="Enter master key"
+                autoFocus
+                required
+              />
+              <button type="button" onClick={() => setShowKey((v) => !v)}
+                className="absolute right-3 top-2 text-xs text-gray-400">{showKey ? "Hide" : "Show"}</button>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button type="button" onClick={onClose}
+              className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50">Cancel</button>
+            <button type="submit" disabled={loading}
+              className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">
+              {loading ? "Deleting\u2026" : "Delete Permanently"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function InstitutionConfigPage() {
   const params = useParams();
   const clientId = params.clientId as string;
+  const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [client, setClient] = useState<ClientRecord | null>(null);
   const [setups, setSetups] = useState<SetupSummary[]>([]);
+  const [showDelete, setShowDelete] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -258,6 +326,33 @@ export default function InstitutionConfigPage() {
             {inactiveSetups.map(s => <SetupCard key={s.channel} setup={s} clientId={clientId} onToggle={handleToggle} />)}
           </div>
         </div>
+      )}
+
+      {/* Danger Zone */}
+      {client && (
+        <div className="mt-8 rounded-xl border border-red-200 bg-white p-6 shadow-sm">
+          <h2 className="mb-2 text-base font-semibold text-red-700">Danger Zone</h2>
+          <p className="mb-4 text-sm text-gray-500">
+            Permanently delete this institution and all associated admin accounts.
+          </p>
+          <button
+            onClick={() => setShowDelete(true)}
+            className="rounded-lg bg-red-50 border border-red-200 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100 hover:text-red-800"
+          >
+            Delete Institution
+          </button>
+        </div>
+      )}
+
+      {showDelete && client && (
+        <DeleteInstitutionModal
+          client={client}
+          onClose={() => setShowDelete(false)}
+          onDelete={() => {
+            setShowDelete(false);
+            router.push("/dashboard/super-admin/institutions");
+          }}
+        />
       )}
     </div>
   );

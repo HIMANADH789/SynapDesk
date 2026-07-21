@@ -47,13 +47,26 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+origins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://your-admin-app.vercel.app",  # Production frontend
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],       # Widget is embeddable on any website
-    allow_credentials=False,   # Auth uses Authorization header, not cookies
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*",  # Allows embedded widget on third-party client sites
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/healthz", status_code=200)
+async def health_check():
+    """Health check endpoint for Render monitoring."""
+    return {"status": "ok", "service": "rag-backend"}
+
 
 app.include_router(health.router, prefix="/api")
 app.include_router(documents.router, prefix="/api")

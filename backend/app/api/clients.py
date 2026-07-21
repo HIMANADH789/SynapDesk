@@ -5,8 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.api.auth import get_current_user
 from app.db.mongodb import get_db
-from app.db.collections import CLIENTS
+from app.db.collections import CLIENTS, USERS, PLATFORM_CONFIG
 from app.models.client import ClientCreate, ALL_SETUPS, SETUP_META, setup_defaults, get_setup
+from app.services import auth_service
+from passlib.hash import bcrypt as passlib_bcrypt
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Response, Header
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -65,6 +69,20 @@ async def create_client(request: ClientCreate, user: dict = Depends(get_current_
         "updated_at": datetime.now(timezone.utc),
     }
     await db[CLIENTS].insert_one(client)
+    
+    if request.admin_email and request.admin_password:
+        try:
+            await auth_service.register_user(
+                email=request.admin_email,
+                password=request.admin_password,
+                client_id=request.client_id,
+                role="admin"
+            )
+        except ValueError as e:
+            # If user already exists, we might want to just skip or return a warning, 
+            # but raising 400 is safer so the super admin knows it failed.
+            raise HTTPException(400, f"Client created, but admin creation failed: {e}")
+
     return {"message": "Client created", "client_id": request.client_id}
 
 
@@ -76,6 +94,45 @@ async def list_clients(user: dict = Depends(get_current_user)):
     cursor = db[CLIENTS].find({}, {"_id": 0})
     clients = await cursor.to_list(length=100)
     return {"clients": clients, "total": len(clients)}
+
+
+@router.delete("/{client_id}")
+async def delete_client(
+    client_id: str,
+    user: dict = Depends(get_current_user),
+    x_master_key: Optional[str] = Header(None)
+):
+    """Delete an institution and its admins. Super admin only. Requires master key."""
+    if user.get("role") != "super_admin":
+        raise HTTPException(403, "Only super admins can delete clients")
+
+    if not x_master_key:
+        raise HTTPException(400, "Master key required in X-Master-Key header")
+
+    db = get_db()
+
+    # Verify master key
+    cursor = db[PLATFORM_CONFIG].find({"type": "master_key"}, {"hash": 1})
+    all_keys = await cursor.to_list(length=100)
+    if not all_keys:
+        raise HTTPException(400, "No master keys configured.")
+
+    valid = any(passlib_bcrypt.verify(x_master_key, k["hash"]) for k in all_keys)
+    if not valid:
+        raise HTTPException(401, "Incorrect master key")
+
+    # Delete client
+    client_res = await db[CLIENTS].delete_one({"client_id": client_id})
+    if client_res.deleted_count == 0:
+        raise HTTPException(404, "Institution not found")
+
+    # Delete all users associated with this client
+    users_res = await db[USERS].delete_many({"client_id": client_id})
+
+    return {
+        "message": "Institution deleted successfully",
+        "users_deleted": users_res.deleted_count
+    }
 
 
 @router.get("/me/profile")

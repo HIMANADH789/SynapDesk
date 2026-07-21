@@ -126,6 +126,8 @@ class ClientCreate(BaseModel):
     name: str
     domain: str = ""
     settings: ClientSettings = Field(default_factory=ClientSettings)
+    admin_email: Optional[str] = None
+    admin_password: Optional[str] = None
 
 
 

@@ -9,7 +9,7 @@ QUERY_CACHE = "query_cache"
 IP_RATE_LIMITS_MIN = "ip_rate_limits_min"   # per-minute windows, TTL 120s
 IP_RATE_LIMITS_DAY = "ip_rate_limits_day"   # per-day windows, TTL 172800s
 PLATFORM_CONFIG = "platform_config"
-
+VECTOR_STORE = "vector_store"
 
 async def create_indexes() -> None:
     db = get_db()
@@ -34,6 +34,10 @@ async def create_indexes() -> None:
     except Exception:
         pass
     await db[PLATFORM_CONFIG].create_index("key", unique=True)
+
+    # Standard indexes for vector store to allow fast document deletions
+    await db[VECTOR_STORE].create_index("doc_id")
+    await db[VECTOR_STORE].create_index("client_id")
 
     # Per-minute rate limit windows — keyed by (client_id, ip, channel, window)
     # Drop old index (without channel) if it exists, then create new one

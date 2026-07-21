@@ -14,6 +14,7 @@ async def main():
         {"client_id": client_id},
         {"$set": {
             "settings.setups.whatsapp.phone_number_id": phone_id,
+            "settings.setups.whatsapp.enabled": True,
             "settings.whatsapp_config.phone_number_id": phone_id
         }}
     )

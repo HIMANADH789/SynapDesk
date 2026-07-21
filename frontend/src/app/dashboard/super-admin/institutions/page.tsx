@@ -31,6 +31,8 @@ function CreateInstitutionModal({ onClose, onCreated }: { onClose: () => void; o
     client_id: "",
     name: "",
     domain: "",
+    admin_email: "",
+    admin_password: "",
   });
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -57,6 +59,8 @@ function CreateInstitutionModal({ onClose, onCreated }: { onClose: () => void; o
         client_id: form.client_id,
         name: form.name,
         domain: form.domain,
+        admin_email: form.admin_email || undefined,
+        admin_password: form.admin_password || undefined,
       });
       onCreated({
         client_id: form.client_id,
@@ -97,6 +101,20 @@ function CreateInstitutionModal({ onClose, onCreated }: { onClose: () => void; o
               <input className={inputCls} value={form.domain} onChange={setStr("domain")}
                 placeholder="democollege.edu" />
             </Field>
+
+            <div className="border-t border-gray-100 pt-4">
+              <h3 className="mb-2 text-sm font-semibold text-gray-900">Admin Account (Optional)</h3>
+              <div className="space-y-4">
+                <Field label="Admin Email">
+                  <input type="email" className={inputCls} value={form.admin_email} onChange={setStr("admin_email")}
+                    placeholder="admin@democollege.edu" />
+                </Field>
+                <Field label="Admin Password" hint="Min. 8 characters if provided">
+                  <input type="password" className={inputCls} value={form.admin_password} onChange={setStr("admin_password")}
+                    placeholder="••••••••" />
+                </Field>
+              </div>
+            </div>
           </div>
 
           {/* Advanced Settings (collapsible) */}

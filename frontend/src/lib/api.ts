@@ -63,8 +63,14 @@ export const api = {
   updateClientSettings: (clientId: string, settings: Record<string, unknown>) =>
     request(`/clients/${clientId}/settings`, { method: "PATCH", body: JSON.stringify(settings) }),
 
-  createClient: (data: { client_id: string; name: string; domain?: string }) =>
+  createClient: (data: { client_id: string; name: string; domain?: string; admin_email?: string; admin_password?: string }) =>
     request<{ message: string; client_id: string }>("/clients", { method: "POST", body: JSON.stringify(data) }),
+
+  deleteClient: (clientId: string, masterKey: string) =>
+    request<{ message: string; users_deleted: number }>(`/clients/${clientId}`, {
+      method: "DELETE",
+      headers: { "X-Master-Key": masterKey }
+    }),
 
   listClients: () => request<{ clients: import("@/types").ClientRecord[]; total: number }>("/clients"),
 

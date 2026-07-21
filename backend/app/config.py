@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     # MongoDB
     MONGODB_URI: str = "mongodb://localhost:27017"
     MONGODB_DB_NAME: str = "chatbot"
+    MONGODB_VECTOR_INDEX_NAME: str = "default_vector_index"
 
     # Auth
     JWT_SECRET: str = "change-me-in-production"

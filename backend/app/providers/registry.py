@@ -52,6 +52,11 @@ def get_vectordb_provider() -> VectorStoreProvider:
                 _vectordb_instance = ChromaDBProvider(
                     persist_dir=settings.CHROMA_PERSIST_DIR
                 )
+            case "mongodb":
+                from app.providers.vectordb.mongodb import MongoDBVectorProvider
+                _vectordb_instance = MongoDBVectorProvider(
+                    index_name=settings.MONGODB_VECTOR_INDEX_NAME
+                )
             case _:
                 raise ValueError(f"Unknown vector DB provider: {settings.VECTORDB_PROVIDER}")
     return _vectordb_instance
