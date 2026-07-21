@@ -14,3 +14,5 @@ README.md
 scratch/
 
 chroma_data/
+
+app/providers/embeddings/model_onnx/
