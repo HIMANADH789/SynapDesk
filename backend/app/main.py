@@ -32,10 +32,7 @@ async def lifespan(app: FastAPI):
         logging.getLogger("app").warning(
             "MongoDB index creation failed (cluster may be paused or IP not whitelisted): %s", exc
         )
-    # Pre-warm cross-encoder reranker so the first chat request has no model-load latency
-    import asyncio
-    from app.utils import reranker as reranker_util
-    await asyncio.get_event_loop().run_in_executor(None, reranker_util.preload)
+    # Reranker preload removed to save memory on Render deployments
     yield
     await close_db()
 

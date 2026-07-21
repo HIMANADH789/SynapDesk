@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     # Provider selection
     LLM_PROVIDER: str = "gemini"
     EMBEDDING_PROVIDER: str = "huggingface"
-    VECTORDB_PROVIDER: str = "chromadb"
+    VECTORDB_PROVIDER: str = "mongodb"
 
     # API keys
     GEMINI_API_KEY: str = ""

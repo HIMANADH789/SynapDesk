@@ -17,6 +17,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
+# Download ONNX quantized weights (~80MB) and tokenizer files during build
+RUN mkdir -p app/providers/embeddings/model_onnx && \
+    wget -O app/providers/embeddings/model_onnx/model.onnx https://huggingface.co/optimum/all-MiniLM-L6-v2/resolve/main/model.onnx && \
+    wget -O app/providers/embeddings/model_onnx/tokenizer.json https://huggingface.co/optimum/all-MiniLM-L6-v2/resolve/main/tokenizer.json
+
 # Copy application source code
 COPY . .
 
@@ -24,4 +29,4 @@ COPY . .
 EXPOSE 8000
 
 # Run Gunicorn with Uvicorn async workers for production scaling
-CMD ["sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker --preload -w ${WORKERS:-1} -b 0.0.0.0:${PORT:-10000} app.main:app"]
+CMD ["sh", "-c", "gunicorn -k uvicorn.workers.UvicornWorker -w ${WORKERS:-1} -b 0.0.0.0:${PORT:-10000} app.main:app"]
