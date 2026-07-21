@@ -47,13 +47,15 @@ app = FastAPI(
 origins = [
     "http://localhost:3000",
     "http://localhost:5173",
+    "http://127.0.0.1:5500",
+    "null",
     "https://synap-desk.vercel.app",  # Production frontend
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
-    allow_origin_regex=r"https://.*",  # Allows embedded widget on third-party client sites
+    allow_origin_regex=r"https://.*|http://localhost:.*|http://127\.0\.0\.1:.*",  # Allows embedded widget on third-party sites and local servers
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

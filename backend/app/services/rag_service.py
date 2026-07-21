@@ -357,16 +357,19 @@ async def _retrieve_and_rerank(
     else:
         top_candidates = all_candidates[:settings.RETRIEVAL_TOP_K]
 
-    all_sources = [
-        {
-            "doc_id": c["metadata"].get("doc_id", ""),
-            "filename": c["metadata"].get("filename", ""),
-            "chunk_index": c["metadata"].get("chunk_index", 0),
-            "score": round(c["score"], 3),
-            "text_preview": c["text"][:200],
-        }
-        for c in top_candidates
-    ]
+    all_sources = []
+    seen_docs = set()
+    for c in top_candidates:
+        doc_id = c["metadata"].get("doc_id", "")
+        if doc_id not in seen_docs:
+            seen_docs.add(doc_id)
+            all_sources.append({
+                "doc_id": doc_id,
+                "filename": c["metadata"].get("filename", ""),
+                "chunk_index": c["metadata"].get("chunk_index", 0),
+                "score": round(c["score"], 3),
+                "text_preview": c["text"][:200],
+            })
 
     return all_sources, top_candidates
 
