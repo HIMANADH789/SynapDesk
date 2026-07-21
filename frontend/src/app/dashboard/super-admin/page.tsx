@@ -7,6 +7,80 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { SuperAdminOverview, ClientUsageSummary } from "@/types";
 
+import { getKeeperStatus, toggleKeeper } from "@/actions/cron";
+
+function KeeperToggle() {
+  const [enabled, setEnabled] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [configured, setConfigured] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getKeeperStatus().then((res) => {
+      setEnabled(res.enabled);
+      setConfigured(res.configured);
+      setLoading(false);
+    }).catch(e => {
+      setError("Failed to fetch status");
+      setLoading(false);
+    });
+  }, []);
+
+  const handleToggle = async () => {
+    if (!configured) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await toggleKeeper(!enabled);
+      setEnabled(res.enabled);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading && !configured) {
+    return <div className="text-sm text-gray-500">Checking keeper status...</div>;
+  }
+
+  if (!configured) {
+    return (
+      <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-5">
+        <h3 className="font-semibold text-yellow-800">Backend Keeper (Not Configured)</h3>
+        <p className="text-sm text-yellow-700 mt-1">
+          Missing CRON_JOB_API_KEY or CRON_JOB_ID in Vercel environment variables.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-5 flex items-center justify-between">
+      <div>
+        <h3 className="font-semibold text-gray-900">Keep Backend Awake</h3>
+        <p className="text-sm text-gray-500 mt-1">
+          When ON, the Cron-Job.org job pings Render every 10 mins to prevent cold starts.
+        </p>
+        {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+      </div>
+      <button
+        onClick={handleToggle}
+        disabled={loading}
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 ${
+          enabled ? "bg-blue-600" : "bg-gray-200"
+        } ${loading ? "opacity-50 cursor-not-allowed" : ""}`}
+      >
+        <span
+          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+            enabled ? "translate-x-5" : "translate-x-0"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
 function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-5">
@@ -91,6 +165,8 @@ export default function SuperAdminPage() {
           {data.total_clients !== 1 ? "s" : ""}
         </p>
       </div>
+
+      <KeeperToggle />
 
       {/* Platform-level stats */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
