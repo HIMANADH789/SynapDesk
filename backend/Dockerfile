@@ -10,6 +10,7 @@ WORKDIR /app
 
 # Install system dependencies (needed for compiling C-extensions if using numpy/scipy)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
@@ -19,8 +20,8 @@ RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
 # Download ONNX quantized weights (~80MB) and tokenizer files during build
 RUN mkdir -p app/providers/embeddings/model_onnx && \
-    wget -O app/providers/embeddings/model_onnx/model.onnx https://huggingface.co/optimum/all-MiniLM-L6-v2/resolve/main/model.onnx && \
-    wget -O app/providers/embeddings/model_onnx/tokenizer.json https://huggingface.co/optimum/all-MiniLM-L6-v2/resolve/main/tokenizer.json
+    curl -L -o app/providers/embeddings/model_onnx/model.onnx https://huggingface.co/optimum/all-MiniLM-L6-v2/resolve/main/model.onnx && \
+    curl -L -o app/providers/embeddings/model_onnx/tokenizer.json https://huggingface.co/optimum/all-MiniLM-L6-v2/resolve/main/tokenizer.json
 
 # Copy application source code
 COPY . .
