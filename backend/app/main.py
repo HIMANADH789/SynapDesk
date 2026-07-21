@@ -47,7 +47,7 @@ app = FastAPI(
 origins = [
     "http://localhost:3000",
     "http://localhost:5173",
-    "https://your-admin-app.vercel.app",  # Production frontend
+    "https://synap-desk.vercel.app",  # Production frontend
 ]
 
 app.add_middleware(
