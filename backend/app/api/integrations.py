@@ -44,10 +44,6 @@ from app.db.collections import CLIENTS
 
 logger = logging.getLogger(__name__)
 
-# Two separate routers so they can have different prefixes
-webhook_router = APIRouter(prefix="/webhook", tags=["webhooks"])
-integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
-
 # Keep old name for backward compat with main.py include
 router = integrations_router
 
@@ -59,38 +55,22 @@ def _get_adapter(channel: str):
     return adapter
 
 
-async def _get_platform_verify_token(platform: str) -> str:
-    """
-    Fetch the global verify_token stored in PLATFORM_CONFIG collection
-    (key = "{platform}_verify_token"), or fall back to the first institution
-    that has it configured. This token is set once when registering the Meta
-    App webhook URL.
-    """
-    from app.db.collections import PLATFORM_CONFIG
-    db = get_db()
-    doc = await db[PLATFORM_CONFIG].find_one({"key": f"{platform}_verify_token"})
-    if doc:
-        return doc.get("value", "")
-    # Fallback: grab from first institution that has it configured
-    client = await db[CLIENTS].find_one(
-        {f"settings.{platform}_config.verify_token": {"$exists": True}},
-        {f"settings.{platform}_config.verify_token": 1},
-    )
-    if client:
-        return client.get("settings", {}).get(f"{platform}_config", {}).get("verify_token", "")
-    return ""
-
-
 # ── WhatsApp (Meta Cloud API) ─────────────────────────────────────────────────
 
-@webhook_router.get("/whatsapp", response_class=PlainTextResponse)
+@integrations_router.get("/{client_id}/whatsapp", response_class=PlainTextResponse)
 async def whatsapp_verify(
+    client_id: str,
     hub_mode: str = Query(None, alias="hub.mode"),
     hub_verify_token: str = Query(None, alias="hub.verify_token"),
     hub_challenge: str = Query(None, alias="hub.challenge"),
 ):
     """Meta webhook verification — returns hub.challenge on success."""
-    expected = await _get_platform_verify_token("whatsapp")
+    db = get_db()
+    client = await db[CLIENTS].find_one({"client_id": client_id})
+    if not client:
+        raise HTTPException(404, "Institution not found")
+        
+    expected = client.get("settings", {}).get("whatsapp_config", {}).get("verify_token", "")
     if not expected:
         expected = "SynapDeskSecretToken123"
     
@@ -99,43 +79,26 @@ async def whatsapp_verify(
     raise HTTPException(403, "WhatsApp webhook verification failed. Check verify_token.")
 
 
-@webhook_router.post("/whatsapp")
-async def whatsapp_webhook(request: Request):
+@integrations_router.post("/{client_id}/whatsapp")
+async def whatsapp_webhook(client_id: str, request: Request):
     """
     Receive WhatsApp messages from Meta Cloud API.
-    Multi-tenant: identifies institution via phone_number_id → DB lookup.
+    Multi-tenant: per-client webhook URL.
     """
     body_bytes = await request.body()
-
-    # Parse early to extract phone_number_id for institution lookup
     try:
         raw = json.loads(body_bytes)
     except json.JSONDecodeError:
         raise HTTPException(400, "Invalid JSON")
 
-    # Extract phone_number_id from payload
-    phone_number_id = ""
-    try:
-        phone_number_id = (
-            raw["entry"][0]["changes"][0]["value"]["metadata"]["phone_number_id"]
-        )
-    except (KeyError, IndexError, TypeError):
-        pass
-
-    # Find which institution owns this phone number
-    client_id = None
-    if phone_number_id:
-        client_id = await lookup_client_by_platform_id("whatsapp", "phone_number_id", phone_number_id)
-
-    if not client_id:
-        # Could be a status update with no messages — acknowledge silently
-        logger.debug("WhatsApp: no institution found for phone_number_id=%s", phone_number_id)
-        return {"status": "ignored"}
-
     # Verify signature using institution's app_secret
     db = get_db()
     client = await db[CLIENTS].find_one({"client_id": client_id})
-    app_secret = (client or {}).get("settings", {}).get("whatsapp_config", {}).get("app_secret", "")
+    if not client:
+        logger.debug("WhatsApp: no institution found for client_id=%s", client_id)
+        return {"status": "ignored"}
+        
+    app_secret = client.get("settings", {}).get("whatsapp_config", {}).get("app_secret", "")
     sig = request.headers.get("X-Hub-Signature-256", "")
     if app_secret and sig and not wa_verify(app_secret, body_bytes, sig):
         raise HTTPException(403, "Invalid WhatsApp signature")
@@ -153,24 +116,33 @@ async def whatsapp_webhook(request: Request):
 
 # ── Facebook Messenger (Meta) ─────────────────────────────────────────────────
 
-@webhook_router.get("/facebook", response_class=PlainTextResponse)
+@integrations_router.get("/{client_id}/facebook", response_class=PlainTextResponse)
 async def facebook_verify(
+    client_id: str,
     hub_mode: str = Query(None, alias="hub.mode"),
     hub_verify_token: str = Query(None, alias="hub.verify_token"),
     hub_challenge: str = Query(None, alias="hub.challenge"),
 ):
     """Meta webhook verification for Facebook Messenger."""
-    expected = await _get_platform_verify_token("facebook")
+    db = get_db()
+    client = await db[CLIENTS].find_one({"client_id": client_id})
+    if not client:
+        raise HTTPException(404, "Institution not found")
+        
+    expected = client.get("settings", {}).get("facebook_config", {}).get("verify_token", "")
+    if not expected:
+        expected = "SynapDeskSecretToken123"
+        
     if hub_mode == "subscribe" and hub_verify_token == expected and hub_challenge:
         return hub_challenge
     raise HTTPException(403, "Facebook webhook verification failed. Check verify_token.")
 
 
-@webhook_router.post("/facebook")
-async def facebook_webhook(request: Request):
+@integrations_router.post("/{client_id}/facebook")
+async def facebook_webhook(client_id: str, request: Request):
     """
     Receive Facebook Messenger messages from Meta.
-    Multi-tenant: identifies institution via page_id → DB lookup.
+    Multi-tenant: per-client webhook URL.
     """
     body_bytes = await request.body()
     try:
@@ -178,25 +150,14 @@ async def facebook_webhook(request: Request):
     except json.JSONDecodeError:
         raise HTTPException(400, "Invalid JSON")
 
-    # Extract page_id
-    page_id = ""
-    try:
-        page_id = raw["entry"][0]["id"]
-    except (KeyError, IndexError, TypeError):
-        pass
-
-    client_id = None
-    if page_id:
-        client_id = await lookup_client_by_platform_id("facebook", "page_id", page_id)
-
-    if not client_id:
-        logger.debug("Facebook: no institution found for page_id=%s", page_id)
-        return {"status": "ignored"}
-
     # Verify signature
     db = get_db()
     client = await db[CLIENTS].find_one({"client_id": client_id})
-    app_secret = (client or {}).get("settings", {}).get("facebook_config", {}).get("app_secret", "")
+    if not client:
+        logger.debug("Facebook: no institution found for client_id=%s", client_id)
+        return {"status": "ignored"}
+        
+    app_secret = client.get("settings", {}).get("facebook_config", {}).get("app_secret", "")
     sig = request.headers.get("X-Hub-Signature-256", "")
     if app_secret and sig and not fb_verify(app_secret, body_bytes, sig):
         raise HTTPException(403, "Invalid Facebook signature")

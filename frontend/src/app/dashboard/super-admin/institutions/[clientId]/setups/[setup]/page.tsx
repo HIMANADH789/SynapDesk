@@ -237,7 +237,7 @@ function WebhookUrl({ url }: { url: string }) {
   );
 }
 
-function WhatsAppCredentials({ cfg, editable, onSave }: { cfg: Record<string, unknown>; editable: boolean; onSave: (f: Record<string, unknown>) => Promise<void> }) {
+function WhatsAppCredentials({ cfg, clientId, editable, onSave }: { cfg: Record<string, unknown>; clientId: string; editable: boolean; onSave: (f: Record<string, unknown>) => Promise<void> }) {
   const [phoneId, setPhoneId] = useState(String(cfg.phone_number_id || ""));
   const [token, setToken] = useState(String(cfg.access_token || ""));
   const [secret, setSecret] = useState(String(cfg.app_secret || ""));
@@ -261,9 +261,9 @@ function WhatsAppCredentials({ cfg, editable, onSave }: { cfg: Record<string, un
   return (
     <Section title="WhatsApp Credentials">
       <div className="rounded-lg bg-green-50 border border-green-100 p-3 text-xs text-green-800">
-        <p className="font-semibold mb-1">Global webhook URL — register once in your Meta App:</p>
-        <WebhookUrl url={`${BACKEND_URL}/api/webhook/whatsapp`} />
-        <p className="mt-2">Institutions are identified by Phone Number ID. One Meta App can serve all institutions.</p>
+        <p className="font-semibold mb-1">Webhook URL — register in this client's Meta App:</p>
+        <WebhookUrl url={`${BACKEND_URL}/api/integrations/${clientId}/whatsapp`} />
+        <p className="mt-2">Each institution has a unique webhook URL.</p>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <CredentialField label="Phone Number ID" hint="From Meta WhatsApp dashboard" value={phoneId} onChange={setPhoneId} editable={editable} />
@@ -282,7 +282,7 @@ function WhatsAppCredentials({ cfg, editable, onSave }: { cfg: Record<string, un
   );
 }
 
-function FacebookCredentials({ cfg, editable, onSave }: { cfg: Record<string, unknown>; editable: boolean; onSave: (f: Record<string, unknown>) => Promise<void> }) {
+function FacebookCredentials({ cfg, clientId, editable, onSave }: { cfg: Record<string, unknown>; clientId: string; editable: boolean; onSave: (f: Record<string, unknown>) => Promise<void> }) {
   const [pageId, setPageId] = useState(String(cfg.page_id || ""));
   const [pageToken, setPageToken] = useState(String(cfg.page_access_token || ""));
   const [secret, setSecret] = useState(String(cfg.app_secret || ""));
@@ -305,9 +305,9 @@ function FacebookCredentials({ cfg, editable, onSave }: { cfg: Record<string, un
   return (
     <Section title="Facebook Messenger Credentials">
       <div className="rounded-lg bg-blue-50 border border-blue-100 p-3 text-xs text-blue-800">
-        <p className="font-semibold mb-1">Global webhook URL — register once in Meta Developer Console:</p>
-        <WebhookUrl url={`${BACKEND_URL}/api/webhook/facebook`} />
-        <p className="mt-2">Institutions are routed by Page ID.</p>
+        <p className="font-semibold mb-1">Webhook URL — register in this client's Meta Developer Console:</p>
+        <WebhookUrl url={`${BACKEND_URL}/api/integrations/${clientId}/facebook`} />
+        <p className="mt-2">Each institution has a unique webhook URL.</p>
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <CredentialField label="Facebook Page ID" hint="From your Page's About section" value={pageId} onChange={setPageId} editable={editable} />
@@ -547,8 +547,8 @@ export default function SetupConfigPage() {
       )}
 
       {/* Channel-specific credentials */}
-      {setupChannel === "whatsapp" && <WhatsAppCredentials cfg={cfg} editable={editable} onSave={saveConfig} />}
-      {setupChannel === "facebook" && <FacebookCredentials cfg={cfg} editable={editable} onSave={saveConfig} />}
+      {setupChannel === "whatsapp" && <WhatsAppCredentials cfg={cfg} clientId={clientId} editable={editable} onSave={saveConfig} />}
+      {setupChannel === "facebook" && <FacebookCredentials cfg={cfg} clientId={clientId} editable={editable} onSave={saveConfig} />}
       {setupChannel === "telegram" && <TelegramCredentials cfg={cfg} clientId={clientId} editable={editable} onSave={saveConfig} />}
       {setupChannel === "slack" && <SlackCredentials cfg={cfg} clientId={clientId} editable={editable} onSave={saveConfig} />}
     </div>

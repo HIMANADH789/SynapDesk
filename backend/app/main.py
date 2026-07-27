@@ -74,7 +74,6 @@ app.include_router(auth.router, prefix="/api")
 app.include_router(clients.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
 app.include_router(integrations.router, prefix="/api")
-app.include_router(integrations.webhook_router, prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn
