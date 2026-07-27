@@ -44,7 +44,7 @@ from app.db.collections import CLIENTS
 
 logger = logging.getLogger(__name__)
 
-# Keep old name for backward compat with main.py include
+integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
 router = integrations_router
 
 
