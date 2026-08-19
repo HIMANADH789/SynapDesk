@@ -80,7 +80,7 @@ async def whatsapp_verify(
 
 
 @integrations_router.post("/{client_id}/whatsapp")
-async def whatsapp_webhook(client_id: str, request: Request):
+async def whatsapp_webhook(client_id: str, request: Request, background_tasks: BackgroundTasks):
     """
     Receive WhatsApp messages from Meta Cloud API.
     Multi-tenant: per-client webhook URL.
@@ -109,8 +109,7 @@ async def whatsapp_webhook(client_id: str, request: Request):
         return {"status": "ignored"}
 
     # Fire-and-forget: RAG can take seconds, Meta expects 200 quickly
-    import asyncio
-    asyncio.create_task(handle_incoming(msg, adapter))
+    background_tasks.add_task(handle_incoming, msg, adapter)
     return {"status": "ok"}
 
 
@@ -139,7 +138,7 @@ async def facebook_verify(
 
 
 @integrations_router.post("/{client_id}/facebook")
-async def facebook_webhook(client_id: str, request: Request):
+async def facebook_webhook(client_id: str, request: Request, background_tasks: BackgroundTasks):
     """
     Receive Facebook Messenger messages from Meta.
     Multi-tenant: per-client webhook URL.
@@ -167,15 +166,14 @@ async def facebook_webhook(client_id: str, request: Request):
     if msg is None:
         return {"status": "ignored"}
 
-    import asyncio
-    asyncio.create_task(handle_incoming(msg, adapter))
+    background_tasks.add_task(handle_incoming, msg, adapter)
     return {"status": "ok"}
 
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 
 @integrations_router.post("/{client_id}/telegram")
-async def telegram_webhook(client_id: str, request: Request):
+async def telegram_webhook(client_id: str, request: Request, background_tasks: BackgroundTasks):
     """
     Telegram Bot API webhook (POST JSON updates).
     Optional: validate X-Telegram-Bot-Api-Secret-Token if secret_token is configured.
@@ -202,8 +200,7 @@ async def telegram_webhook(client_id: str, request: Request):
     if msg is None:
         return {"ok": True}
 
-    import asyncio
-    asyncio.create_task(handle_incoming(msg, adapter))
+    background_tasks.add_task(handle_incoming, msg, adapter)
     return {"ok": True}
 
 
