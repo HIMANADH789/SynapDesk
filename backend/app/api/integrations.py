@@ -113,6 +113,92 @@ async def whatsapp_webhook(client_id: str, request: Request, background_tasks: B
     return {"status": "ok"}
 
 
+@integrations_router.get("/{client_id}/whatsapp/debug")
+async def whatsapp_debug(client_id: str):
+    """
+    Diagnostic endpoint — hit from browser to check the full WhatsApp pipeline.
+    URL: https://synapdesk.onrender.com/api/integrations/sv_professionals/whatsapp/debug
+    """
+    checks = {}
+
+    # 1. Check if client exists in DB
+    db = get_db()
+    client = await db[CLIENTS].find_one({"client_id": client_id})
+    if not client:
+        checks["client_found"] = False
+        return {"status": "FAIL", "checks": checks, "error": f"Client '{client_id}' not found in database"}
+    checks["client_found"] = True
+
+    # 2. Check whatsapp_config exists
+    wa_config = client.get("settings", {}).get("whatsapp_config", {})
+    checks["whatsapp_config_exists"] = bool(wa_config)
+
+    # Also check setups.whatsapp
+    setups_wa = client.get("settings", {}).get("setups", {}).get("whatsapp", {})
+    checks["setups_whatsapp_exists"] = bool(setups_wa)
+
+    # 3. Check required fields
+    phone_number_id = wa_config.get("phone_number_id", "")
+    access_token = wa_config.get("access_token", "")
+    checks["phone_number_id"] = phone_number_id[:10] + "..." if phone_number_id else "MISSING"
+    checks["access_token"] = access_token[:15] + "..." if access_token else "MISSING"
+    checks["verify_token"] = wa_config.get("verify_token", "MISSING")
+
+    # 4. Check adapter is registered
+    try:
+        adapter = _get_adapter(CHANNEL_WHATSAPP)
+        checks["adapter_registered"] = True
+    except RuntimeError:
+        checks["adapter_registered"] = False
+
+    # 5. Check LLM provider
+    try:
+        from app.config import settings as app_settings
+        checks["llm_provider"] = app_settings.LLM_PROVIDER
+        checks["groq_model"] = app_settings.GROQ_MODEL if app_settings.LLM_PROVIDER == "groq" else "N/A"
+        checks["gemini_api_key_set"] = bool(app_settings.GEMINI_API_KEY)
+        checks["groq_api_key_set"] = bool(app_settings.GROQ_API_KEY)
+    except Exception as e:
+        checks["settings_error"] = str(e)
+
+    # 6. Test sending a WhatsApp message (to the WABA phone itself, as a ping)
+    if phone_number_id and access_token:
+        try:
+            test_payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": "919999999999",  # dummy — will fail but shows if API auth works
+                "type": "text",
+                "text": {"preview_url": False, "body": "SynapDesk connectivity test"},
+            }
+            async with httpx.AsyncClient(timeout=15) as http:
+                resp = await http.post(
+                    f"https://graph.facebook.com/v20.0/{phone_number_id}/messages",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=test_payload,
+                )
+                checks["meta_api_status"] = resp.status_code
+                checks["meta_api_response"] = resp.json()
+        except Exception as e:
+            checks["meta_api_error"] = str(e)
+    else:
+        checks["meta_api_test"] = "SKIPPED — missing phone_number_id or access_token"
+
+    all_ok = (
+        checks.get("client_found")
+        and checks.get("whatsapp_config_exists")
+        and checks.get("adapter_registered")
+        and phone_number_id
+        and access_token
+    )
+
+    return {"status": "OK" if all_ok else "ISSUES_FOUND", "checks": checks}
+
+
+
 # ── Facebook Messenger (Meta) ─────────────────────────────────────────────────
 
 @integrations_router.get("/{client_id}/facebook", response_class=PlainTextResponse)
