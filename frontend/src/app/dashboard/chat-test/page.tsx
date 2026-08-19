@@ -72,6 +72,7 @@ async function streamChat(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let streamError: string | null = null;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -91,6 +92,9 @@ async function streamChat(
         if (event.type === "token") {
           // Animate each chunk character-by-character for smooth ChatGPT-like effect
           await animateChunk(event.text as string, onToken);
+        } else if (event.type === "error") {
+          // Capture the backend error message to throw after stream ends
+          streamError = (event.content as string) || "Sorry, something went wrong. Please try again.";
         } else if (event.type === "done") {
           onDone(event.session_id as string, (event.sources as Source[]) ?? []);
         }
@@ -98,6 +102,11 @@ async function streamChat(
         // malformed chunk — skip
       }
     }
+  }
+
+  // After stream ends, if the backend reported an error, throw so the catch block shows it
+  if (streamError) {
+    throw new Error(streamError);
   }
 }
 
@@ -179,12 +188,13 @@ export default function ChatTestPage() {
         },
         departmentCode,
       );
-    } catch {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : "Sorry, something went wrong. Please try again.";
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         return [
           ...prev.slice(0, -1),
-          { ...last, content: "Sorry, something went wrong. Please try again." },
+          { ...last, content: errMsg },
         ];
       });
     } finally {

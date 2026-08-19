@@ -634,12 +634,13 @@ def _build_history_text(history: list) -> str:
 def _get_fallback_llm(current_llm: LLMProvider) -> LLMProvider:
     # Try Groq if not current, then Gemini, then Ollama
     from app.config import settings
+    model_name = current_llm.get_model_name().lower()
     # If current is Gemini and Groq is available, fallback to Groq
-    if current_llm.get_model_name().lower().startswith("gemini") and settings.GROQ_API_KEY:
+    if ("gemini" in model_name or model_name.startswith("models/")) and settings.GROQ_API_KEY:
         from app.providers.llm.groq import GroqProvider
         return GroqProvider(api_key=settings.GROQ_API_KEY, model=settings.GROQ_MODEL)
     # If current is Groq and Gemini is available, fallback to Gemini
-    if current_llm.get_model_name().lower().startswith("llama") and settings.GEMINI_API_KEY:
+    if model_name.startswith("llama") and settings.GEMINI_API_KEY:
         from app.providers.llm.gemini import GeminiProvider
         return GeminiProvider(api_key=settings.GEMINI_API_KEY, model=settings.GEMINI_MODEL)
     # Otherwise, fallback to Ollama if available
