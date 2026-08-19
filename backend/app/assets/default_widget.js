@@ -189,10 +189,16 @@
       l.innerHTML = welcomeCard;
     };
 
+    function linkify(text) {
+      let urlRegex = /(https?:\/\/[^\s<]+)/g;
+      return text.replace(urlRegex, '<a href="$1" target="_blank" style="color: #0ea5e9; text-decoration: underline;">$1</a>');
+    }
+
     function f(type, text) {
       let t = document.createElement("div");
       t.className = `msg ${type}`;
       t.textContent = text;
+      t.innerHTML = linkify(t.innerHTML);
       a.appendChild(t);
       a.scrollTop = a.scrollHeight;
       return t;
@@ -254,6 +260,7 @@
                 } else if (h.type === "done") {
                   if (h.session_id) E = h.session_id;
                   if (i) i.remove();
+                  if (t) t.innerHTML = linkify(t.innerHTML);
                 } else if (h.type === "error") {
                   $(); if (i) i.remove();
                   f("bot", h.content || "Error generating response.");

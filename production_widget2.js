@@ -291,48 +291,17 @@
       50% { transform: rotate(-3deg) translateY(-2px); }
     }
     
-    /* ── Quick Replies & Menus ── */
+    /* ── Quick Replies ── */
     .quick-replies {
-      display: flex; flex-direction: column; gap: 8px; margin-top: 12px; width: 100%;
+      display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;
     }
     .quick-reply-btn {
-      background: #ffffff; color: #1e293b; border: 1.5px solid #e2e8f0;
-      padding: 12px 16px; border-radius: 14px; font-size: 13.5px; font-weight: 600;
+      background: #fff; color: ${themeColor}; border: 1px solid ${themeColor}44;
+      padding: 8px 14px; border-radius: 16px; font-size: 12.5px; font-weight: 500;
       font-family: 'Inter', system-ui, sans-serif;
-      cursor: pointer; transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      text-align: left; display: flex; align-items: center; justify-content: space-between;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.03);
-      width: 100%;
+      cursor: pointer; transition: background 0.2s, border-color 0.2s;
     }
-    .quick-reply-btn::after {
-      content: '→'; font-size: 16px; color: ${themeColor};
-      opacity: 0; transform: translateX(-10px); transition: all 0.25s ease;
-    }
-    .quick-reply-btn:hover { 
-      border-color: ${themeColor}; color: ${themeColor};
-      box-shadow: 0 6px 16px rgba(0,0,0,0.06);
-      transform: translateY(-2px);
-    }
-    .quick-reply-btn:hover::after {
-      opacity: 1; transform: translateX(0);
-    }
-    .quick-replies-row {
-      display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; width: 100%;
-    }
-    .submenu-chip {
-      background: #ffffff; color: #334155;
-      border: 1px solid #e2e8f0; border-radius: 8px;
-      padding: 10px 14px; text-align: center; justify-content: center;
-      width: 100%; font-size: 13px; font-weight: 500;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.02);
-      transition: all 0.2s ease;
-    }
-    .submenu-chip::after { display: none; }
-    .submenu-chip:hover {
-      border-color: ${themeColor}; color: ${themeColor};
-      box-shadow: 0 4px 10px rgba(0,0,0,0.05);
-      transform: translateY(-1px);
-    }
+    .quick-reply-btn:hover { background: ${themeColor}11; border-color: ${themeColor}; }
 
     @media (max-width: 480px) {
       .chat-panel { width: calc(100vw - 24px); right: 12px; bottom: 96px; height: 72vh; border-radius: 16px; }
@@ -439,7 +408,7 @@
 
     function linkify(text) {
       let urlRegex = /(https?:\/\/[^\s<]+)/g;
-      return text.replace(urlRegex, '<a href="$1" target="_blank" style="color: #3b82f6; text-decoration: underline; font-weight: 500;">$1</a>');
+      return text.replace(urlRegex, '<a href="$1" target="_blank" style="color: inherit; text-decoration: underline; font-weight: 600;">$1</a>');
     }
 
     function addMessage(role, text) {
@@ -612,7 +581,7 @@
     function renderSubmenuChips(submenus) {
       let wrap = addMessage("bot", "Choose a topic:");
       let chips = document.createElement("div");
-      chips.className = "quick-replies-row";
+      chips.className = "quick-replies";
       submenus.forEach(sm => {
         if (!sm.label) return;
         let chip = document.createElement("button");
