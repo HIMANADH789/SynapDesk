@@ -85,28 +85,62 @@ async def whatsapp_webhook(client_id: str, request: Request, background_tasks: B
     Receive WhatsApp messages from Meta Cloud API.
     Multi-tenant: per-client webhook URL.
     """
+    from datetime import datetime, timezone
+
     body_bytes = await request.body()
+    log_entry = {
+        "client_id": client_id,
+        "channel": "whatsapp",
+        "timestamp": datetime.now(timezone.utc),
+        "raw_payload": None,
+        "parse_result": None,
+        "status": None,
+        "error": None,
+    }
+
     try:
         raw = json.loads(body_bytes)
     except json.JSONDecodeError:
+        log_entry["status"] = "invalid_json"
+        log_entry["error"] = "Could not parse JSON body"
+        db = get_db()
+        await db["webhook_logs"].insert_one(log_entry)
         raise HTTPException(400, "Invalid JSON")
+
+    log_entry["raw_payload"] = raw
 
     # Verify signature using institution's app_secret
     db = get_db()
     client = await db[CLIENTS].find_one({"client_id": client_id})
     if not client:
         logger.debug("WhatsApp: no institution found for client_id=%s", client_id)
+        log_entry["status"] = "client_not_found"
+        await db["webhook_logs"].insert_one(log_entry)
         return {"status": "ignored"}
         
     app_secret = client.get("settings", {}).get("whatsapp_config", {}).get("app_secret", "")
     sig = request.headers.get("X-Hub-Signature-256", "")
     if app_secret and sig and not wa_verify(app_secret, body_bytes, sig):
+        log_entry["status"] = "signature_failed"
+        await db["webhook_logs"].insert_one(log_entry)
         raise HTTPException(403, "Invalid WhatsApp signature")
 
     adapter = _get_adapter(CHANNEL_WHATSAPP)
     msg = await adapter.parse_incoming(raw, client_id)
     if msg is None:
+        log_entry["status"] = "parse_returned_none"
+        log_entry["parse_result"] = "adapter.parse_incoming returned None — likely a status update, not a user message"
+        await db["webhook_logs"].insert_one(log_entry)
         return {"status": "ignored"}
+
+    log_entry["status"] = "ok"
+    log_entry["parse_result"] = {
+        "user_id": msg.user_id,
+        "message": msg.message,
+        "channel": msg.channel,
+        "client_id": msg.client_id,
+    }
+    await db["webhook_logs"].insert_one(log_entry)
 
     # Fire-and-forget: RAG can take seconds, Meta expects 200 quickly
     background_tasks.add_task(handle_incoming, msg, adapter)
@@ -196,6 +230,30 @@ async def whatsapp_debug(client_id: str):
     )
 
     return {"status": "OK" if all_ok else "ISSUES_FOUND", "checks": checks}
+
+
+@integrations_router.get("/{client_id}/whatsapp/logs")
+async def whatsapp_logs(client_id: str):
+    """
+    View recent webhook logs — hit from browser to see what Meta is sending us.
+    URL: https://synapdesk.onrender.com/api/integrations/sv_professionals/whatsapp/logs
+    """
+    db = get_db()
+    logs = await db["webhook_logs"].find(
+        {"client_id": client_id, "channel": "whatsapp"}
+    ).sort("timestamp", -1).to_list(length=20)
+
+    # Convert ObjectId to string for JSON serialization
+    for log in logs:
+        log["_id"] = str(log["_id"])
+        if log.get("timestamp"):
+            log["timestamp"] = str(log["timestamp"])
+
+    return {
+        "total_logs": len(logs),
+        "logs": logs,
+        "note": "If total_logs is 0, Meta is NOT sending webhooks to this URL at all."
+    }
 
 
 
