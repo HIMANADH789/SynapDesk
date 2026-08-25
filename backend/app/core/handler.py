@@ -25,54 +25,15 @@ logger = logging.getLogger("ProviderInitialization")
 
 
 async def _build_providers():
-    """Instantiate LLM/embedding/vectordb providers from settings."""
-    from app.config import settings as app_settings
-    from app.providers.vectordb.chromadb import ChromaDBProvider
-
-    logger.debug("Building providers based on settings.")
-
-    llm = None
-    # Flexible LLM selection based on .env and available keys
-    if app_settings.LLM_PROVIDER.lower() == "gemini" and app_settings.GEMINI_API_KEY:
-        from app.providers.llm.gemini import GeminiProvider
-        llm = GeminiProvider(api_key=app_settings.GEMINI_API_KEY, model=app_settings.GEMINI_MODEL)
-        logger.debug("Initialized GeminiProvider.")
-    elif app_settings.LLM_PROVIDER.lower() == "groq" and app_settings.GROQ_API_KEY:
-        from app.providers.llm.groq import GroqProvider
-        llm = GroqProvider(api_key=app_settings.GROQ_API_KEY, model=app_settings.GROQ_MODEL)
-        logger.debug("Initialized GroqProvider.")
-    elif app_settings.LLM_PROVIDER.lower() == "ollama":
-        from app.providers.llm.ollama import OllamaProvider
-        llm = OllamaProvider(base_url=app_settings.OLLAMA_URL)
-        logger.debug("Initialized OllamaProvider.")
-
-    # Fallback order if primary is missing
-    if not llm and app_settings.GEMINI_API_KEY:
-        from app.providers.llm.gemini import GeminiProvider
-        llm = GeminiProvider(api_key=app_settings.GEMINI_API_KEY, model=app_settings.GEMINI_MODEL)
-        logger.debug("Fallback to GeminiProvider.")
-    if not llm and app_settings.GROQ_API_KEY:
-        from app.providers.llm.groq import GroqProvider
-        llm = GroqProvider(api_key=app_settings.GROQ_API_KEY, model=app_settings.GROQ_MODEL)
-        logger.debug("Fallback to GroqProvider.")
-    if not llm:
-        from app.providers.llm.ollama import OllamaProvider
-        llm = OllamaProvider(base_url=app_settings.OLLAMA_URL)
-        logger.debug("Fallback to OllamaProvider.")
-
-    vectordb = ChromaDBProvider()
-    logger.debug("Initialized ChromaDBProvider.")
-
-    # Try to import Google embedding provider; fall back gracefully
-    try:
-        from app.providers.embeddings.google import GoogleEmbeddingProvider
-        embeddings = GoogleEmbeddingProvider(api_key=app_settings.GEMINI_API_KEY)
-        logger.debug("Initialized GoogleEmbeddingProvider.")
-    except ImportError:
-        from app.providers.embeddings.gemini import GeminiEmbeddingProvider
-        embeddings = GeminiEmbeddingProvider(api_key=app_settings.GEMINI_API_KEY)
-        logger.debug("Fallback to GeminiEmbeddingProvider.")
-
+    """Instantiate LLM/embedding/vectordb providers from registry (matching web chat)."""
+    from app.providers.registry import (
+        get_llm_provider,
+        get_embedding_provider,
+        get_vectordb_provider,
+    )
+    llm = get_llm_provider()
+    embeddings = get_embedding_provider()
+    vectordb = get_vectordb_provider()
     return llm, embeddings, vectordb
 
 
@@ -94,11 +55,12 @@ async def handle_incoming(
       1. Run RAG pipeline
       2. Send reply via the appropriate channel adapter
       3. Return the response text
-
-    All error handling is done here so individual adapters stay clean.
     """
     from app.services import rag_service
+    from datetime import datetime, timezone
+    db = get_db()
 
+    response_text = ""
     try:
         llm, embeddings, vectordb = await _build_providers()
 
@@ -114,14 +76,50 @@ async def handle_incoming(
         response_text = result.get("response", "Sorry, I could not process your request.")
 
     except Exception as exc:
+        import traceback
+        tb = traceback.format_exc()
         logger.exception("RAG pipeline failed for %s / %s: %s", msg.client_id, msg.channel, exc)
         response_text = "Sorry, I'm having trouble right now. Please try again later."
+        try:
+            await db["webhook_logs"].insert_one({
+                "client_id": msg.client_id,
+                "channel": msg.channel,
+                "timestamp": datetime.now(timezone.utc),
+                "status": "rag_error",
+                "error": str(exc),
+                "traceback": tb,
+            })
+        except Exception:
+            pass
 
     try:
         config = await get_client_platform_config(msg.client_id, msg.channel)
         await adapter.send_response(msg, response_text, config)
+        try:
+            await db["webhook_logs"].insert_one({
+                "client_id": msg.client_id,
+                "channel": msg.channel,
+                "timestamp": datetime.now(timezone.utc),
+                "status": "response_sent",
+                "reply": response_text[:200],
+            })
+        except Exception:
+            pass
     except Exception as exc:
+        import traceback
+        tb = traceback.format_exc()
         logger.exception("Failed to send response via %s: %s", msg.channel, exc)
+        try:
+            await db["webhook_logs"].insert_one({
+                "client_id": msg.client_id,
+                "channel": msg.channel,
+                "timestamp": datetime.now(timezone.utc),
+                "status": "adapter_send_error",
+                "error": str(exc),
+                "traceback": tb,
+            })
+        except Exception:
+            pass
 
     return response_text
 
