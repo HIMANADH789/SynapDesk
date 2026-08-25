@@ -37,7 +37,7 @@ FALLBACK_MESSAGE = (
     "Please contact the administration directly for further assistance."
 )
 
-DEFAULT_SYSTEM_PROMPT = """You are a knowledgeable and friendly AI assistant. You help users by answering their questions accurately using the information available to you. You speak in a warm, professional, and conversational tone. You never fabricate information."""
+DEFAULT_SYSTEM_PROMPT = """You are a knowledgeable and friendly AI assistant. You help users by answering their questions accurately using the information available to you. You speak in a warm, professional, and conversational tone. You never fabricate information. Do not output thinking tags, reasoning steps, or scratchpads — output only the direct final answer."""
 
 CONVERSATIONAL_TRIGGERS = {
     "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
@@ -58,6 +58,31 @@ def _is_conversational(message: str) -> bool:
 
 
 def _clean_markdown(text: str) -> str:
+    if not text:
+        return ""
+
+    # 1. Remove closed <think>...</think> or <thought>...</thought> blocks
+    if re.search(r"<(think|thought)>[\s\S]*?</\1>", text, flags=re.IGNORECASE):
+        cleaned = re.sub(r"<(think|thought)>[\s\S]*?</\1>", "", text, flags=re.IGNORECASE).strip()
+        if cleaned:
+            text = cleaned
+        else:
+            # If the model only generated inside <think>, extract the final quote or clean content
+            match = re.findall(r'"([^"\n]{4,})"', text)
+            text = match[-1] if match else re.sub(r"</?(think|thought)>", "", text, flags=re.IGNORECASE).strip()
+
+    # 2. If there is an unclosed <think> or <thought> block (e.g. max_tokens cutoff)
+    elif re.search(r"<(think|thought)>", text, flags=re.IGNORECASE):
+        match = re.findall(r'"([^"\n]{4,})"', text)
+        if match:
+            text = match[-1]
+        else:
+            text = re.sub(r"<(think|thought)>[\s\S]*", "", text, flags=re.IGNORECASE).strip()
+
+    # 3. Remove "Here's a thinking process:" style headers
+    text = re.sub(r"^Here'?s a thinking process:?[\s\S]*?(?=\n\n|\Z)", "", text, flags=re.IGNORECASE)
+
+    # 4. Standard markdown cleanup
     text = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", text)
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"`(.+?)`", r"\1", text)
@@ -436,8 +461,8 @@ async def query(
     # Conversational shortcut — no retrieval
     if _is_conversational(message):
         await _rate_limiter.acquire()
-        conv_prompt = f"{history_text}\nUser: {message}\n\nReply naturally and briefly. You are a front desk assistant."
-        llm_response = await llm.generate(conv_prompt, system_prompt=system_prompt, temperature=0.7, max_tokens=256)
+        conv_prompt = f"{history_text}\nUser: {message}\n\nRespond directly as a friendly front desk assistant in 1-2 sentences. Output ONLY the response text with no thinking steps or tags."
+        llm_response = await llm.generate(conv_prompt, system_prompt=system_prompt, temperature=0.5, max_tokens=512)
         text = _clean_markdown(llm_response.text)
         await add_message(session_id, "assistant", text)
         response_time = int((time.time() - start) * 1000)
