@@ -37,7 +37,12 @@ FALLBACK_MESSAGE = (
     "Please contact the administration directly for further assistance."
 )
 
-DEFAULT_SYSTEM_PROMPT = """You are a knowledgeable and friendly AI assistant. You help users by answering their questions accurately using the information available to you. You speak in a warm, professional, and conversational tone. You never fabricate information. Do not output thinking tags, reasoning steps, or scratchpads — output only the direct final answer."""
+DEFAULT_SYSTEM_PROMPT = """You are a knowledgeable and friendly AI assistant for the institution. You help students, parents, and faculty by answering their questions accurately using the information available to you. You speak in a warm, professional, and conversational tone. You never fabricate information.
+
+CRITICAL OUTPUT INSTRUCTIONS:
+- Do NOT output <think>...</think> tags, internal reasoning, scratchpads, or thought processes. Output ONLY the direct final answer.
+- Provide clear, comprehensive, and well-structured answers in 4 to 6 sentences (or clean bullet points when listing steps, rules, or requirements).
+- Use normal sentence casing and clean formatting."""
 
 CONVERSATIONAL_TRIGGERS = {
     "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
@@ -61,34 +66,114 @@ def _clean_markdown(text: str) -> str:
     if not text:
         return ""
 
-    # 1. Remove closed <think>...</think> or <thought>...</thought> blocks
-    if re.search(r"<(think|thought)>[\s\S]*?</\1>", text, flags=re.IGNORECASE):
-        cleaned = re.sub(r"<(think|thought)>[\s\S]*?</\1>", "", text, flags=re.IGNORECASE).strip()
-        if cleaned:
-            text = cleaned
-        else:
-            # If the model only generated inside <think>, extract the final quote or clean content
-            match = re.findall(r'"([^"\n]{4,})"', text)
-            text = match[-1] if match else re.sub(r"</?(think|thought)>", "", text, flags=re.IGNORECASE).strip()
+    # 1. Remove closed <think>...</think> or <thought>...</thought> blocks completely
+    text = re.sub(r"<(think|thought)>[\s\S]*?</\1>", "", text, flags=re.IGNORECASE).strip()
 
-    # 2. If there is an unclosed <think> or <thought> block (e.g. max_tokens cutoff)
-    elif re.search(r"<(think|thought)>", text, flags=re.IGNORECASE):
-        match = re.findall(r'"([^"\n]{4,})"', text)
-        if match:
-            text = match[-1]
-        else:
-            text = re.sub(r"<(think|thought)>[\s\S]*", "", text, flags=re.IGNORECASE).strip()
+    # 2. Remove unclosed <think> or <thought> block (e.g. max_tokens cutoff)
+    if re.search(r"<(think|thought)>", text, flags=re.IGNORECASE):
+        text = re.sub(r"<(think|thought)>[\s\S]*", "", text, flags=re.IGNORECASE).strip()
 
-    # 3. Remove "Here's a thinking process:" style headers
-    text = re.sub(r"^Here'?s a thinking process:?[\s\S]*?(?=\n\n|\Z)", "", text, flags=re.IGNORECASE)
+    # 3. Strip any stray closing or opening thinking tags
+    text = re.sub(r"</?(think|thought)>", "", text, flags=re.IGNORECASE).strip()
 
-    # 4. Standard markdown cleanup
+    # 4. Remove "Here's a thinking process:" or similar reasoning headers
+    text = re.sub(r"^Here'?s a thinking process:?[\s\S]*?(?=\n\n|\Z)", "", text, flags=re.IGNORECASE).strip()
+    text = re.sub(r"^(?:Thinking Process|Thought Process|Internal reasoning):?[\s\S]*?(?=\n\n|\Z)", "", text, flags=re.IGNORECASE).strip()
+
+    # 5. Standard markdown cleanup
     text = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", text)
     text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
     text = re.sub(r"`(.+?)`", r"\1", text)
     text = re.sub(r"^[-*_]{3,}\s*$", "", text, flags=re.MULTILINE)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+async def _filter_thinking_stream(raw_stream):
+    """
+    Suppresses <think>...</think> and <thought>...</thought> blocks in real-time
+    during token streaming so internal reasoning is never emitted to the user.
+    """
+    in_think = False
+    buffer = ""
+    emitted_any = False
+    think_accumulator = ""
+
+    async for chunk in raw_stream:
+        buffer += chunk
+
+        while buffer:
+            if not in_think:
+                lower_buf = buffer.lower()
+                think_pos = lower_buf.find("<think>")
+                thought_pos = lower_buf.find("<thought>")
+
+                positions = [p for p in (think_pos, thought_pos) if p != -1]
+                if positions:
+                    first_pos = min(positions)
+                    pre_text = buffer[:first_pos]
+                    if pre_text:
+                        if not emitted_any:
+                            pre_text = re.sub(r"^Here'?s a thinking process:?\s*", "", pre_text, flags=re.IGNORECASE)
+                        if pre_text:
+                            emitted_any = True
+                            yield pre_text
+
+                    tag_len = 7 if (first_pos == think_pos) else 9
+                    buffer = buffer[first_pos + tag_len:]
+                    in_think = True
+                else:
+                    tag_start = buffer.rfind("<")
+                    if tag_start != -1 and (len(buffer) - tag_start) <= 9 and (
+                        "<think>".startswith(buffer[tag_start:].lower()) or
+                        "<thought>".startswith(buffer[tag_start:].lower())
+                    ):
+                        emit_text = buffer[:tag_start]
+                        buffer = buffer[tag_start:]
+                        if emit_text:
+                            if not emitted_any:
+                                emit_text = re.sub(r"^Here'?s a thinking process:?\s*", "", emit_text, flags=re.IGNORECASE)
+                            if emit_text:
+                                emitted_any = True
+                                yield emit_text
+                        break
+                    else:
+                        emit_text = buffer
+                        buffer = ""
+                        if not emitted_any:
+                            emit_text = re.sub(r"^Here'?s a thinking process:?\s*", "", emit_text, flags=re.IGNORECASE)
+                        if emit_text:
+                            emitted_any = True
+                            yield emit_text
+            else:
+                lower_buf = buffer.lower()
+                close_think = lower_buf.find("</think>")
+                close_thought = lower_buf.find("</thought>")
+
+                close_positions = [p for p in (close_think, close_thought) if p != -1]
+                if close_positions:
+                    first_close = min(close_positions)
+                    think_accumulator += buffer[:first_close]
+                    tag_len = 8 if (first_close == close_think) else 10
+                    buffer = buffer[first_close + tag_len:]
+                    in_think = False
+                else:
+                    close_tag_start = buffer.rfind("<")
+                    if close_tag_start != -1 and (len(buffer) - close_tag_start) <= 10 and (
+                        "</think>".startswith(buffer[close_tag_start:].lower()) or
+                        "</thought>".startswith(buffer[close_tag_start:].lower())
+                    ):
+                        think_accumulator += buffer[:close_tag_start]
+                        buffer = buffer[close_tag_start:]
+                        break
+                    else:
+                        think_accumulator += buffer
+                        buffer = ""
+
+    if not emitted_any:
+        fallback_text = _clean_markdown(think_accumulator or buffer)
+        if fallback_text:
+            yield fallback_text
 
 
 def _parse_json_response(text: str) -> dict:
@@ -406,13 +491,14 @@ def _build_rag_prompt(context: str, history_text: str, message: str) -> str:
 User question: {message}
 
 Answer rules:
-1. Answer using ONLY the context above. You must include the COMPLETE information — reproduce every detail, rule, penalty, consequence, deadline, and step exactly as stated. If the context says "which may include cancellation of the exam", you MUST include that phrase. Never drop or summarize away parts of sentences.
-2. Do NOT invent or assume any information not present in the context.
-3. Speak naturally and directly. Never say "the context states", "based on the document", "not specified in the provided context", or similar phrases. Just answer the question as if you know it.
-4. Do NOT suggest contacting anyone or any department unless the question is completely unanswerable from the context. If you have the answer, just give it.
-5. Do NOT add a "Sources" section or mention any filenames.
-6. Format: use bullet points (•) for lists, short paragraphs, normal sentence casing. No markdown symbols (**, ##, backticks).
-7. Keep answers complete but not bloated — no filler paragraphs, no repeating the same point in different words."""
+1. Answer using ONLY the context above. Include COMPLETE and ACCURATE information — reproduce every detail, rule, penalty, consequence, deadline, and step exactly as stated. Never omit key facts or consequences.
+2. Structure your answer in 4 to 6 clear, well-formed sentences. When listing specific rules, penalties, steps, dates, or documents, format them with clean bullet points (•).
+3. Do NOT invent or assume any information not present in the context.
+4. Speak naturally, directly, and professionally. Never say "the context states", "based on the document", "not specified in the provided context", or similar meta-phrases. Just answer the question directly.
+5. Do NOT suggest contacting anyone or any department unless the question is completely unanswerable from the context. If you have the answer in the context, provide it completely.
+6. Do NOT add a "Sources" section or mention internal document/chunk filenames.
+7. Format: use bullet points (•) for lists, short paragraphs, normal sentence casing. No raw markdown headers (##, ###) or backticks.
+8. CRITICAL: Output ONLY the final direct answer. Do NOT output <think>...</think> tags, reasoning steps, or scratchpad text."""
 
 
 # ── Public API: non-streaming ─────────────────────────────────────────────────
@@ -510,13 +596,15 @@ async def query(
 
     llm_response = await llm.generate(prompt, system_prompt=system_prompt, temperature=0.2, max_tokens=1024)
     text = _clean_markdown(llm_response.text)
+    if not text or len(text) < 10:
+        text = FALLBACK_MESSAGE
 
     await add_message(session_id, "assistant", text, all_sources)
     response_time = int((time.time() - start) * 1000)
     await _log_query(client_id, session_id, message, text, all_sources, response_time, llm_response.model, llm_response.usage, channel=channel)
 
-    # Store in semantic cache
-    if settings.CACHE_ENABLED:
+    # Store in semantic cache (only cache valid non-fallback answers)
+    if settings.CACHE_ENABLED and text != FALLBACK_MESSAGE and len(text) >= 20:
         await store_cache(client_id, message, query_embedding_for_cache, text, all_sources)
 
     return {"response": text, "sources": all_sources, "session_id": session_id}
@@ -570,9 +658,10 @@ async def query_stream(
     # Conversational shortcut
     if _is_conversational(message):
         await _rate_limiter.acquire()
-        conv_prompt = f"{history_text}\nUser: {message}\n\nReply naturally and briefly. You are a front desk assistant."
+        conv_prompt = f"{history_text}\nUser: {message}\n\nReply naturally and briefly. You are a front desk assistant. Do not output thinking tags."
         full_text = ""
-        async for chunk in llm.generate_stream(conv_prompt, system_prompt=system_prompt, temperature=0.7, max_tokens=256):
+        raw_gen = llm.generate_stream(conv_prompt, system_prompt=system_prompt, temperature=0.7, max_tokens=256)
+        async for chunk in _filter_thinking_stream(raw_gen):
             full_text += chunk
             yield {"type": "token", "text": chunk}
         full_text = _clean_markdown(full_text)
@@ -629,16 +718,21 @@ async def query_stream(
         llm = _get_fallback_llm(llm)
 
     full_text = ""
-    async for chunk in llm.generate_stream(prompt, system_prompt=system_prompt, temperature=0.2, max_tokens=1024):
+    raw_gen = llm.generate_stream(prompt, system_prompt=system_prompt, temperature=0.2, max_tokens=1024)
+    async for chunk in _filter_thinking_stream(raw_gen):
         full_text += chunk
         yield {"type": "token", "text": chunk}
 
     full_text = _clean_markdown(full_text)
+    if not full_text or len(full_text) < 10:
+        full_text = FALLBACK_MESSAGE
+        yield {"type": "token", "text": FALLBACK_MESSAGE}
+
     await add_message(session_id, "assistant", full_text, all_sources)
     response_time = int((time.time() - start) * 1000)
     await _log_query(client_id, session_id, message, full_text, all_sources, response_time, llm.get_model_name(), {}, channel=channel)
 
-    if settings.CACHE_ENABLED and query_embedding_for_cache is not None:
+    if settings.CACHE_ENABLED and query_embedding_for_cache is not None and full_text != FALLBACK_MESSAGE and len(full_text) >= 20:
         await store_cache(client_id, message, query_embedding_for_cache, full_text, all_sources)
 
     yield {"type": "done", "session_id": session_id, "sources": all_sources}
