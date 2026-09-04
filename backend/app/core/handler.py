@@ -161,7 +161,15 @@ async def handle_incoming(
         error_msg = str(exc)
         status = "error"
         logger.exception("Unified message handler failed for %s / %s: %s", msg.client_id, msg.channel, exc)
-        response_text = "Sorry, I'm having trouble right now. Please try again in a moment."
+        if matched_node and matched_node.get("label"):
+            node_lbl = matched_node.get("label")
+            response_text = (
+                f"Thank you for inquiring about our *{node_lbl}* program! "
+                f"We offer comprehensive coaching covering syllabus preparation, experienced faculty guidance, and regular mock exams. "
+                f"Our front desk will be delighted to provide full batch timings and details shortly. Please feel free to ask any further questions!"
+            )
+        else:
+            response_text = "Sorry, I'm having trouble right now. Please try again in a moment."
         try:
             config = await get_client_platform_config(msg.client_id, msg.channel)
             await adapter.send_response(msg, response_text, config)

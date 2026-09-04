@@ -748,7 +748,7 @@ Instructions:
 4. Keep the response concise, mobile-friendly (use clean bullet points if listing courses), and end with an engaging next-step question.
 5. Output ONLY the direct response. Do NOT output thinking tags (<think>...</think>) or internal reasoning."""
 
-        llm_response = await llm.generate(guidance_prompt, system_prompt=system_prompt, temperature=0.3, max_tokens=1024)
+        llm_response = await llm.generate(guidance_prompt, system_prompt=system_prompt, temperature=0.3, max_tokens=650)
         text = _clean_markdown(llm_response.text)
         if not text or len(text.strip()) == 0:
             text = FALLBACK_MESSAGE
