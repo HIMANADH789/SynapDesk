@@ -8,9 +8,8 @@ from app.db.mongodb import get_db
 from app.db.collections import CLIENTS, USERS, PLATFORM_CONFIG
 from app.models.client import ClientCreate, ALL_SETUPS, SETUP_META, setup_defaults, get_setup
 from app.services import auth_service
-from passlib.hash import bcrypt as passlib_bcrypt
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Response, Header
+from typing import Optional, Dict, Any, List
+from fastapi import APIRouter, Depends, HTTPException, Response, Header, Query
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
