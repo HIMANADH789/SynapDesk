@@ -119,6 +119,16 @@ export const api = {
       body: JSON.stringify({ webhook_url: webhookUrl }),
     }),
 
+  // ── Profile Compilation Engine ───────────────────────────────────────────────
+  getCompiledProfile: (clientId: string, channel = "widget") =>
+    request<{ compiled_profile: import("@/types").CompiledProfile }>(`/clients/${clientId}/compiled-profile?channel=${channel}`),
+
+  recompileProfile: (clientId: string, channel = "widget") =>
+    request<{ message: string; compiled_profile: import("@/types").CompiledProfile }>(
+      `/clients/${clientId}/recompile-profile?channel=${channel}`,
+      { method: "POST" }
+    ),
+
   // ── Super-admin analytics ─────────────────────────────────────────────────────
   superAdminOverview: () => request<import("@/types").SuperAdminOverview>("/analytics/super-admin/overview"),
   superAdminClientDetail: (clientId: string, page = 1, pageSize = 20) =>

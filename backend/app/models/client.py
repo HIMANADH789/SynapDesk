@@ -25,6 +25,9 @@ def setup_defaults(channel: str) -> dict:
         "context_mode": "none",              # "none" | "adaptive" | "full"
         "context_instructions": "",          # Specific entities/details to track
         "context_capacity": 4,               # Number of turns to scan
+        "menu_tree": [],                     # Channel-specific or inherited menu tree
+        "context_images": [],                # Contextual image triggers
+        "descriptive_rules": [],             # Client-configured descriptive trigger policies
     }
     if channel == "widget":
         base.update({"allowed_origins": []})   # secured by Origin header, no token needed
@@ -109,6 +112,34 @@ class MenuOption(BaseModel):
     submenus: list[SubMenu] = Field(default_factory=list)
 
 
+class MenuNode(BaseModel):
+    id: str
+    label: str
+    description: Optional[str] = ""
+    descriptor_tag: Optional[str] = ""    # Context condition when to trigger this menu stream
+    frequency: str = "on_intent"          # "only_once" | "always" | "on_intent"
+    action_question: Optional[str] = ""   # Leaf node: full question sent to RAG pipeline
+    children: list["MenuNode"] = Field(default_factory=list)
+
+
+class ContextImage(BaseModel):
+    id: str
+    title: str
+    image_path: str                       # Path in repo public folder (e.g. /images/...) or URL
+    descriptor_tag: str                   # Context condition when this image should be inserted
+    caption: Optional[str] = ""
+    frequency: str = "on_intent"          # "only_once" | "always" | "on_intent"
+
+
+class DescriptiveRule(BaseModel):
+    id: str
+    title: str
+    trigger_type: str = "on_intent"       # "first_turn" | "context_match" | "always" | "on_intent"
+    prompt_directive: str                 # Inbuilt prompt instructions / context rule
+    target_menu_id: Optional[str] = None  # Optional linked menu ID
+    target_image_id: Optional[str] = None # Optional linked image ID
+
+
 class ClientSettings(BaseModel):
     # Global chat behaviour
     welcome_message: str = "Hello! How can I help you today?"
@@ -118,6 +149,12 @@ class ClientSettings(BaseModel):
     chatbot_title: str = "AI Front Desk"
     custom_widget_script: str = ""
     menu_options: list[MenuOption] = Field(default_factory=list)
+    menu_tree: list[MenuNode] = Field(default_factory=list)
+    context_images: list[ContextImage] = Field(default_factory=list)
+    descriptive_rules: list[DescriptiveRule] = Field(default_factory=list)
+
+    # Pre-compiled runtime snapshot (cached in MongoDB & in-memory)
+    compiled_profile: Optional[Dict[str, Any]] = None
 
     # Context-Adaptive RAG settings
     context_mode: str = "none"              # "none" | "adaptive" | "full"

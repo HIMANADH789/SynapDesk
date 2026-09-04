@@ -125,17 +125,69 @@ export interface MenuOption {
   submenus: SubMenu[];
 }
 
+export interface MenuNode {
+  id: string;
+  label: string;
+  description?: string;
+  descriptor_tag?: string;
+  frequency?: "only_once" | "always" | "on_intent" | string;
+  action_question?: string;
+  children?: MenuNode[];
+}
+
+export interface ContextImage {
+  id: string;
+  title: string;
+  image_path: string;
+  descriptor_tag: string;
+  caption?: string;
+  frequency?: "only_once" | "always" | "on_intent" | string;
+}
+
+export interface DescriptiveRule {
+  id: string;
+  title: string;
+  trigger_type: "on_first_turn" | "on_intent" | "always" | string;
+  prompt_directive: string;
+  target_menu_id?: string;
+  target_image_id?: string;
+}
+
+export interface CompiledProfile {
+  client_id: string;
+  channel: string;
+  version_hash: string;
+  compiled_at: string;
+  compiled_system_prompt: string;
+  welcome_message: string;
+  theme_color: string;
+  chatbot_title: string;
+  menu_tree: MenuNode[];
+  context_images: ContextImage[];
+  descriptive_rules: DescriptiveRule[];
+  context_config: {
+    mode: string;
+    instructions: string;
+    capacity: number;
+  };
+}
+
 export interface ClientSettings {
   welcome_message?: string;
   theme_color?: string;
   chatbot_title?: string;
   custom_widget_script?: string;
   menu_options?: MenuOption[];
+  menu_tree?: MenuNode[];
+  context_images?: ContextImage[];
+  descriptive_rules?: DescriptiveRule[];
   system_prompt?: string;
   max_history_turns?: number;
   context_mode?: "none" | "adaptive" | "full" | string;
   context_instructions?: string;
   context_capacity?: number;
+  compiled_profiles?: Record<string, CompiledProfile>;
+  last_compiled_at?: string;
   setups?: Record<string, Record<string, unknown>>;
 }
 

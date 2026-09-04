@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { api } from "@/lib/api";
-import type { ClientSettings, SubMenu } from "@/types";
+import type { ClientSettings, SubMenu, MenuNode, ContextImage, DescriptiveRule } from "@/types";
 
 
 function getClientIdFromToken(): string {
@@ -30,6 +30,9 @@ Be concise, friendly, and professional.`,
   context_instructions: "",
   context_capacity: 4,
   menu_options: [],
+  menu_tree: [],
+  context_images: [],
+  descriptive_rules: [],
 };
 
 function newSubMenu(): SubMenu {
@@ -66,6 +69,9 @@ export default function SettingsPage() {
         context_instructions: s?.context_instructions ?? DEFAULTS.context_instructions,
         context_capacity: s?.context_capacity ?? DEFAULTS.context_capacity,
         menu_options: s?.menu_options ?? DEFAULTS.menu_options,
+        menu_tree: s?.menu_tree ?? DEFAULTS.menu_tree,
+        context_images: s?.context_images ?? DEFAULTS.context_images,
+        descriptive_rules: s?.descriptive_rules ?? DEFAULTS.descriptive_rules,
       });
     }).catch(() => {});
 
@@ -341,183 +347,573 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Menu Options & FAQs */}
-      <div className="rounded-xl bg-white p-6 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
+      {/* 🌳 Hierarchical Interactive Menus & Sub-Menus */}
+      <div className="rounded-xl bg-white p-6 shadow-sm space-y-5">
+        <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold">Menu Options &amp; FAQs</h2>
+            <h2 className="text-lg font-semibold text-gray-900">🌳 Hierarchical Interactive Menus (WhatsApp / Widget)</h2>
             <p className="text-sm text-gray-500">
-              Create menu topics → submenus → questions that users can tap in the chatbot.
+              Create recursive menu trees: Root Option (with descriptor trigger tag) → Sub-options → Leaf Action Question.
             </p>
           </div>
           <button
             onClick={() => {
+              const newRoot: MenuNode = {
+                id: crypto.randomUUID(),
+                label: "New Topic",
+                description: "",
+                descriptor_tag: "",
+                frequency: "on_intent",
+                action_question: "",
+                children: [],
+              };
               setSettings((s) => ({
                 ...s,
-                menu_options: [
-                  ...(s.menu_options || []),
-                  { id: crypto.randomUUID(), label: "New Topic", submenus: [] }
-                ]
+                menu_tree: [...(s.menu_tree || []), newRoot],
               }));
             }}
-            className="rounded-lg bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-200"
+            className="rounded-lg bg-blue-50 text-blue-700 border border-blue-200 px-3.5 py-2 text-sm font-medium hover:bg-blue-100"
           >
-            + Add Topic
+            + Add Root Menu Option
           </button>
         </div>
 
         <div className="space-y-4">
-          {(settings.menu_options || []).map((menu, mIndex) => (
-            <div key={menu.id} className="rounded-lg border border-gray-200 p-4">
-              {/* ── Menu Topic Row ── */}
-              <div className="mb-3 flex items-center gap-3">
-                <span className="text-xs font-bold uppercase tracking-wide text-gray-400 w-14 shrink-0">Menu</span>
-                <input
-                  value={menu.label}
-                  onChange={(e) => {
-                    const newOpts = [...(settings.menu_options || [])];
-                    newOpts[mIndex] = { ...newOpts[mIndex], label: e.target.value };
-                    setSettings({ ...settings, menu_options: newOpts });
-                  }}
-                  className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold"
-                  placeholder="Topic Name (e.g. Admissions)"
-                />
-                <button
-                  onClick={() => {
-                    const newOpts = (settings.menu_options || []).filter((_, i) => i !== mIndex);
-                    setSettings({ ...settings, menu_options: newOpts });
-                  }}
-                  className="text-red-400 hover:text-red-600 text-lg leading-none"
-                  title="Remove Topic"
-                >
-                  ✕
-                </button>
+          {(settings.menu_tree || []).map((rootNode, idx) => (
+            <div key={rootNode.id || idx} className="rounded-xl border border-gray-200 p-4 space-y-3 bg-white">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                  Root Option #{idx + 1}
+                </span>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => {
+                      const newChild: MenuNode = {
+                        id: crypto.randomUUID(),
+                        label: "Sub-Option",
+                        description: "",
+                        descriptor_tag: "",
+                        frequency: "on_intent",
+                        action_question: "",
+                        children: [],
+                      };
+                      const next = [...(settings.menu_tree || [])];
+                      next[idx] = {
+                        ...rootNode,
+                        children: [...(rootNode.children || []), newChild],
+                      };
+                      setSettings({ ...settings, menu_tree: next });
+                    }}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline"
+                  >
+                    + Add Sub-Option
+                  </button>
+                  <button
+                    onClick={() => {
+                      const next = (settings.menu_tree || []).filter((_, i) => i !== idx);
+                      setSettings({ ...settings, menu_tree: next });
+                    }}
+                    className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline"
+                  >
+                    Delete Root
+                  </button>
+                </div>
               </div>
 
-              {/* ── Submenus ── */}
-              <div className="space-y-3 pl-4 border-l-2 border-blue-100 ml-2">
-                {(menu.submenus || []).map((sm, smIndex) => (
-                  <div key={sm.id} className="rounded-lg border border-blue-100 bg-blue-50/40 p-3">
-                    {/* Submenu row */}
-                    <div className="mb-2 flex items-center gap-2">
-                      <span className="text-xs font-bold uppercase tracking-wide text-blue-400 w-20 shrink-0">Submenu</span>
-                      <input
-                        value={sm.label}
-                        onChange={(e) => {
-                          const newOpts = [...(settings.menu_options || [])];
-                          const newSubmenus = [...(newOpts[mIndex].submenus || [])];
-                          newSubmenus[smIndex] = { ...newSubmenus[smIndex], label: e.target.value };
-                          newOpts[mIndex] = { ...newOpts[mIndex], submenus: newSubmenus };
-                          setSettings({ ...settings, menu_options: newOpts });
-                        }}
-                        className="flex-1 rounded-lg border border-blue-200 px-3 py-1 text-sm font-medium"
-                        placeholder="Submenu Name (e.g. UG Admissions)"
-                      />
-                      <button
-                        onClick={() => {
-                          const newOpts = [...(settings.menu_options || [])];
-                          newOpts[mIndex] = {
-                            ...newOpts[mIndex],
-                            submenus: newOpts[mIndex].submenus.filter((_, i) => i !== smIndex)
-                          };
-                          setSettings({ ...settings, menu_options: newOpts });
-                        }}
-                        className="text-blue-300 hover:text-red-500"
-                        title="Remove Submenu"
-                      >
-                        ✕
-                      </button>
-                    </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Display Label (max 24 chars)
+                  </label>
+                  <input
+                    type="text"
+                    value={rootNode.label || ""}
+                    onChange={(e) => {
+                      const next = [...(settings.menu_tree || [])];
+                      next[idx] = { ...rootNode, label: e.target.value };
+                      setSettings({ ...settings, menu_tree: next });
+                    }}
+                    placeholder="e.g., Admissions 2026"
+                    maxLength={24}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
 
-                    {/* Sub-Questions */}
-                    <div className="space-y-1.5 pl-4 border-l border-blue-200 ml-2">
-                      <p className="text-xs font-medium text-gray-400">Questions:</p>
-                      {(sm.sub_questions || []).map((sq, sqIndex) => (
-                        <div key={sqIndex} className="flex items-center gap-2">
-                          <input
-                            value={sq}
-                            onChange={(e) => {
-                              const newOpts = [...(settings.menu_options || [])];
-                              const newSubmenus = [...newOpts[mIndex].submenus];
-                              const newQs = [...newSubmenus[smIndex].sub_questions];
-                              newQs[sqIndex] = e.target.value;
-                              newSubmenus[smIndex] = { ...newSubmenus[smIndex], sub_questions: newQs };
-                              newOpts[mIndex] = { ...newOpts[mIndex], submenus: newSubmenus };
-                              setSettings({ ...settings, menu_options: newOpts });
-                            }}
-                            className="flex-1 rounded border border-gray-200 px-2 py-1 text-sm text-gray-700"
-                            placeholder="e.g. How do I apply?"
-                          />
-                          <button
-                            onClick={() => {
-                              const newOpts = [...(settings.menu_options || [])];
-                              const newSubmenus = [...newOpts[mIndex].submenus];
-                              newSubmenus[smIndex] = {
-                                ...newSubmenus[smIndex],
-                                sub_questions: newSubmenus[smIndex].sub_questions.filter((_, i) => i !== sqIndex)
-                              };
-                              newOpts[mIndex] = { ...newOpts[mIndex], submenus: newSubmenus };
-                              setSettings({ ...settings, menu_options: newOpts });
-                            }}
-                            className="text-gray-300 hover:text-red-500"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        onClick={() => {
-                          const newOpts = [...(settings.menu_options || [])];
-                          const newSubmenus = [...newOpts[mIndex].submenus];
-                          newSubmenus[smIndex] = {
-                            ...newSubmenus[smIndex],
-                            sub_questions: [...newSubmenus[smIndex].sub_questions, ""]
-                          };
-                          newOpts[mIndex] = { ...newOpts[mIndex], submenus: newSubmenus };
-                          setSettings({ ...settings, menu_options: newOpts });
-                        }}
-                        className="mt-1 text-xs font-medium text-blue-500 hover:text-blue-700"
-                      >
-                        + Add Question
-                      </button>
-                    </div>
-                  </div>
-                ))}
-
-                <button
-                  onClick={() => {
-                    const newOpts = [...(settings.menu_options || [])];
-                    newOpts[mIndex] = {
-                      ...newOpts[mIndex],
-                      submenus: [...(newOpts[mIndex].submenus || []), newSubMenu()]
-                    };
-                    setSettings({ ...settings, menu_options: newOpts });
-                  }}
-                  className="text-sm font-medium text-blue-600 hover:text-blue-800 border border-blue-200 rounded-lg px-3 py-1 hover:bg-blue-50 transition-colors"
-                >
-                  + Add Submenu
-                </button>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Subtitle / Description (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={rootNode.description || ""}
+                    onChange={(e) => {
+                      const next = [...(settings.menu_tree || [])];
+                      next[idx] = { ...rootNode, description: e.target.value };
+                      setSettings({ ...settings, menu_tree: next });
+                    }}
+                    placeholder="e.g., Application steps, deadlines & quotas"
+                    maxLength={72}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
               </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-gray-100 pt-3">
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    🏷️ Descriptor Tag (When to trigger this menu stream)
+                  </label>
+                  <input
+                    type="text"
+                    value={rootNode.descriptor_tag || ""}
+                    onChange={(e) => {
+                      const next = [...(settings.menu_tree || [])];
+                      next[idx] = { ...rootNode, descriptor_tag: e.target.value };
+                      setSettings({ ...settings, menu_tree: next });
+                    }}
+                    placeholder="e.g., When user asks about applying, enrollment dates, or admission criteria"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Trigger Frequency
+                  </label>
+                  <select
+                    value={rootNode.frequency || "on_intent"}
+                    onChange={(e) => {
+                      const next = [...(settings.menu_tree || [])];
+                      next[idx] = { ...rootNode, frequency: e.target.value };
+                      setSettings({ ...settings, menu_tree: next });
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="on_intent">On Intent / Adaptive</option>
+                    <option value="only_once">Only Once per Session</option>
+                    <option value="always">Always Trigger</option>
+                  </select>
+                </div>
+              </div>
+
+              {(!rootNode.children || rootNode.children.length === 0) && (
+                <div className="border-t border-gray-100 pt-3">
+                  <label className="block text-xs font-medium text-indigo-900 mb-1">
+                    🎯 Leaf Action Question (Question sent to RAG pipeline)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={rootNode.action_question || ""}
+                    onChange={(e) => {
+                      const next = [...(settings.menu_tree || [])];
+                      next[idx] = { ...rootNode, action_question: e.target.value };
+                      setSettings({ ...settings, menu_tree: next });
+                    }}
+                    placeholder="e.g., What are the full admission requirements and procedure for 2026?"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Sub-options */}
+              {rootNode.children && rootNode.children.length > 0 && (
+                <div className="pl-4 border-l-2 border-blue-200 space-y-3 mt-3">
+                  {rootNode.children.map((child, cIdx) => (
+                    <div key={child.id || cIdx} className="rounded-lg border border-blue-100 bg-blue-50/40 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-blue-700">Sub-Option #{cIdx + 1}</span>
+                        <button
+                          onClick={() => {
+                            const newChildren = (rootNode.children || []).filter((_, i) => i !== cIdx);
+                            const next = [...(settings.menu_tree || [])];
+                            next[idx] = { ...rootNode, children: newChildren };
+                            setSettings({ ...settings, menu_tree: next });
+                          }}
+                          className="text-xs text-red-500 hover:text-red-700"
+                        >
+                          ✕ Remove
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          value={child.label || ""}
+                          onChange={(e) => {
+                            const newChildren = [...(rootNode.children || [])];
+                            newChildren[cIdx] = { ...child, label: e.target.value };
+                            const next = [...(settings.menu_tree || [])];
+                            next[idx] = { ...rootNode, children: newChildren };
+                            setSettings({ ...settings, menu_tree: next });
+                          }}
+                          placeholder="Sub-Option Label"
+                          maxLength={24}
+                          className="rounded border border-gray-300 px-3 py-1.5 text-xs bg-white"
+                        />
+                        <input
+                          type="text"
+                          value={child.description || ""}
+                          onChange={(e) => {
+                            const newChildren = [...(rootNode.children || [])];
+                            newChildren[cIdx] = { ...child, description: e.target.value };
+                            const next = [...(settings.menu_tree || [])];
+                            next[idx] = { ...rootNode, children: newChildren };
+                            setSettings({ ...settings, menu_tree: next });
+                          }}
+                          placeholder="Subtitle (optional)"
+                          maxLength={72}
+                          className="rounded border border-gray-300 px-3 py-1.5 text-xs bg-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-medium text-indigo-900 mb-0.5">
+                          🎯 Leaf Action Question for RAG:
+                        </label>
+                        <input
+                          type="text"
+                          value={child.action_question || ""}
+                          onChange={(e) => {
+                            const newChildren = [...(rootNode.children || [])];
+                            newChildren[cIdx] = { ...child, action_question: e.target.value };
+                            const next = [...(settings.menu_tree || [])];
+                            next[idx] = { ...rootNode, children: newChildren };
+                            setSettings({ ...settings, menu_tree: next });
+                          }}
+                          placeholder="e.g., What are the eligibility criteria and fees for this program?"
+                          className="w-full rounded border border-gray-300 px-3 py-1.5 text-xs bg-white"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
-          {!(settings.menu_options?.length) && (
-            <div className="rounded-lg border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
-              No menu topics yet. Click &quot;Add Topic&quot; to start.
+
+          {(!settings.menu_tree || settings.menu_tree.length === 0) && (
+            <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
+              No menu options yet. Click &quot;Add Root Menu Option&quot; to build your interactive tree.
             </div>
           )}
         </div>
 
-        <div className="mt-6 flex items-center gap-3">
+        <div className="mt-4 flex items-center gap-3">
           <button
             onClick={saveSettings}
             disabled={saving}
             className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {saving ? "Saving..." : "Save Settings"}
+            {saving ? "Saving..." : "Save Menus"}
           </button>
-          {saved && (
-            <span className="text-sm text-green-600">Settings saved!</span>
+          {saved && <span className="text-sm text-green-600">Settings saved!</span>}
+        </div>
+      </div>
+
+      {/* 🖼️ Contextual Images & Media Delivery */}
+      <div className="rounded-xl bg-white p-6 shadow-sm space-y-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">🖼️ Contextual Images &amp; Media (WhatsApp)</h2>
+            <p className="text-sm text-gray-500">
+              Configure images to automatically attach when user questions match descriptor trigger conditions.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              const newImg: ContextImage = {
+                id: crypto.randomUUID(),
+                title: "Campus Map",
+                image_path: "/images/campus_map.png",
+                descriptor_tag: "When user asks for campus map, building layout, directions, or parking",
+                caption: "Official Campus Navigation Map",
+                frequency: "on_intent",
+              };
+              setSettings((s) => ({
+                ...s,
+                context_images: [...(s.context_images || []), newImg],
+              }));
+            }}
+            className="rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 px-3.5 py-2 text-sm font-medium hover:bg-emerald-100"
+          >
+            + Add Contextual Image
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {(settings.context_images || []).map((img, idx) => (
+            <div key={img.id || idx} className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                  Image #{idx + 1}
+                </span>
+                <button
+                  onClick={() => {
+                    const next = (settings.context_images || []).filter((_, i) => i !== idx);
+                    setSettings({ ...settings, context_images: next });
+                  }}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline"
+                >
+                  Delete Image
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Image Title</label>
+                  <input
+                    type="text"
+                    value={img.title || ""}
+                    onChange={(e) => {
+                      const next = [...(settings.context_images || [])];
+                      next[idx] = { ...img, title: e.target.value };
+                      setSettings({ ...settings, context_images: next });
+                    }}
+                    placeholder="e.g., Campus Map"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Image Path / URL</label>
+                  <input
+                    type="text"
+                    value={img.image_path || ""}
+                    onChange={(e) => {
+                      const next = [...(settings.context_images || [])];
+                      next[idx] = { ...img, image_path: e.target.value };
+                      setSettings({ ...settings, context_images: next });
+                    }}
+                    placeholder="/images/campus_map.png"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-gray-100 pt-3">
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    🏷️ Descriptor Tag / Trigger Context
+                  </label>
+                  <input
+                    type="text"
+                    value={img.descriptor_tag || ""}
+                    onChange={(e) => {
+                      const next = [...(settings.context_images || [])];
+                      next[idx] = { ...img, descriptor_tag: e.target.value };
+                      setSettings({ ...settings, context_images: next });
+                    }}
+                    placeholder="When user asks for campus map, building layout, hostel directions, or parking"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Send Frequency</label>
+                  <select
+                    value={img.frequency || "on_intent"}
+                    onChange={(e) => {
+                      const next = [...(settings.context_images || [])];
+                      next[idx] = { ...img, frequency: e.target.value };
+                      setSettings({ ...settings, context_images: next });
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="on_intent">On Intent / Context Match</option>
+                    <option value="only_once">Only Once per Session</option>
+                    <option value="always">Always Include</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Caption (sent with image)
+                </label>
+                <input
+                  type="text"
+                  value={img.caption || ""}
+                  onChange={(e) => {
+                    const next = [...(settings.context_images || [])];
+                    next[idx] = { ...img, caption: e.target.value };
+                    setSettings({ ...settings, context_images: next });
+                  }}
+                  placeholder="Official Campus Map"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          ))}
+
+          {(!settings.context_images || settings.context_images.length === 0) && (
+            <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
+              No contextual images configured yet. Click &quot;Add Contextual Image&quot; to configure.
+            </div>
           )}
+        </div>
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={saveSettings}
+            disabled={saving}
+            className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Images"}
+          </button>
+          {saved && <span className="text-sm text-green-600">Settings saved!</span>}
+        </div>
+      </div>
+
+      {/* ✨ Client Descriptive Prompt Policies & Triggers */}
+      <div className="rounded-xl bg-white p-6 shadow-sm space-y-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">✨ Descriptive Prompt Policies &amp; Triggers</h2>
+            <p className="text-sm text-gray-500">
+              Set custom behavioral trigger directives for your AI (e.g., greet and present course options on first turn, or emphasize specific topics). Pre-compiled for instant execution.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              const newRule: DescriptiveRule = {
+                id: crypto.randomUUID(),
+                title: `Trigger Directive #${(settings.descriptive_rules || []).length + 1}`,
+                trigger_type: "on_first_turn",
+                prompt_directive: "On the first user interaction, warmly greet them and guide them to explore our primary programs.",
+              };
+              setSettings((s) => ({
+                ...s,
+                descriptive_rules: [...(s.descriptive_rules || []), newRule],
+              }));
+            }}
+            className="rounded-lg bg-purple-50 text-purple-700 border border-purple-200 px-3.5 py-2 text-sm font-medium hover:bg-purple-100"
+          >
+            + Add Descriptive Rule
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {(settings.descriptive_rules || []).map((rule, idx) => (
+            <div key={rule.id || idx} className="rounded-xl border border-purple-200 bg-purple-50/20 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Rule Title</label>
+                  <input
+                    type="text"
+                    value={rule.title}
+                    onChange={(e) => {
+                      const next = [...(settings.descriptive_rules || [])];
+                      next[idx] = { ...rule, title: e.target.value };
+                      setSettings({ ...settings, descriptive_rules: next });
+                    }}
+                    placeholder="e.g., First Turn Welcome Directives"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium focus:border-purple-500 focus:outline-none"
+                  />
+                </div>
+                <div className="w-56">
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Trigger Execution</label>
+                  <select
+                    value={rule.trigger_type}
+                    onChange={(e) => {
+                      const next = [...(settings.descriptive_rules || [])];
+                      next[idx] = { ...rule, trigger_type: e.target.value };
+                      setSettings({ ...settings, descriptive_rules: next });
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none"
+                  >
+                    <option value="on_first_turn">On First Turn / Entrance</option>
+                    <option value="on_intent">When Context / Intent Matches</option>
+                    <option value="always">Always Active</option>
+                  </select>
+                </div>
+                <button
+                  onClick={() => {
+                    const next = (settings.descriptive_rules || []).filter((_, i) => i !== idx);
+                    setSettings({ ...settings, descriptive_rules: next });
+                  }}
+                  className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline mt-5 px-2"
+                >
+                  Delete Rule
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Prompt Directive <span className="text-gray-400 font-normal">(Direct instruction for the AI assistant during RAG session)</span>
+                </label>
+                <textarea
+                  rows={2}
+                  value={rule.prompt_directive}
+                  onChange={(e) => {
+                    const next = [...(settings.descriptive_rules || [])];
+                    next[idx] = { ...rule, prompt_directive: e.target.value };
+                    setSettings({ ...settings, descriptive_rules: next });
+                  }}
+                  placeholder="e.g., On first interaction, greet politely, introduce our 3 major course tracks, and direct the user to explore them."
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-purple-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-purple-100 pt-2 text-xs">
+                <div>
+                  <label className="block font-medium text-gray-600 mb-1">Linked Interactive Menu (Optional)</label>
+                  <select
+                    value={rule.target_menu_id || ""}
+                    onChange={(e) => {
+                      const next = [...(settings.descriptive_rules || [])];
+                      next[idx] = { ...rule, target_menu_id: e.target.value || undefined };
+                      setSettings({ ...settings, descriptive_rules: next });
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:border-purple-500 focus:outline-none"
+                  >
+                    <option value="">-- No specific menu linked --</option>
+                    {(settings.menu_tree || []).map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label} {m.descriptor_tag ? `[Tag: ${m.descriptor_tag}]` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-medium text-gray-600 mb-1">Linked Media Asset (Optional)</label>
+                  <select
+                    value={rule.target_image_id || ""}
+                    onChange={(e) => {
+                      const next = [...(settings.descriptive_rules || [])];
+                      next[idx] = { ...rule, target_image_id: e.target.value || undefined };
+                      setSettings({ ...settings, descriptive_rules: next });
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:border-purple-500 focus:outline-none"
+                  >
+                    <option value="">-- No specific media linked --</option>
+                    {(settings.context_images || []).map((img) => (
+                      <option key={img.id} value={img.id}>
+                        {img.title} {img.descriptor_tag ? `[Tag: ${img.descriptor_tag}]` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {(!settings.descriptive_rules || settings.descriptive_rules.length === 0) && (
+            <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
+              No descriptive trigger rules configured yet. Click &quot;Add Descriptive Rule&quot; to configure custom prompt directives.
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={saveSettings}
+            disabled={saving}
+            className="rounded-lg bg-purple-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save Descriptive Rules"}
+          </button>
+          {saved && <span className="text-sm text-green-600">Settings saved &amp; profile compiled!</span>}
         </div>
       </div>
 

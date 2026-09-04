@@ -642,13 +642,12 @@ async def query(
 
     client = await db[CLIENTS].find_one({"client_id": client_id})
     system_prompt = DEFAULT_SYSTEM_PROMPT
-    max_history = 3
-    if client:
-        cs = client.get("settings", {})
-        if cs.get("system_prompt"):
-            system_prompt = cs["system_prompt"]
-        if cs.get("max_history_turns"):
-            max_history = cs["max_history_turns"]
+    # Load pre-compiled client runtime profile snapshot (O(1) in-memory cache)
+    from app.services.profile_compiler import get_compiled_profile
+    profile = await get_compiled_profile(client_id, channel)
+
+    system_prompt = profile.get("compiled_system_prompt") or DEFAULT_SYSTEM_PROMPT
+    max_history = cs.get("max_history_turns", 3) if cs else 3
 
     history = await get_history(session_id, max_turns=max_history)
 
@@ -683,10 +682,11 @@ async def query(
     if not can_proceed:
         llm = _get_fallback_llm(llm)
 
-    # Context-Adaptive RAG settings
-    context_mode = _setup_cfg.get("context_mode") or cs.get("context_mode", "none")
-    context_instructions = _setup_cfg.get("context_instructions") or cs.get("context_instructions", "")
-    context_capacity = int(_setup_cfg.get("context_capacity") or cs.get("context_capacity", 4))
+    # Context-Adaptive RAG settings from compiled snapshot
+    ctx_cfg = profile.get("context_config", {})
+    context_mode = ctx_cfg.get("mode", "none")
+    context_instructions = ctx_cfg.get("instructions", "")
+    context_capacity = int(ctx_cfg.get("capacity", 4))
 
     # Resolve contextual query (resolves pronouns / follow-up fragments)
     search_query = await _resolve_contextual_query(
@@ -746,7 +746,23 @@ async def query(
     if settings.CACHE_ENABLED and text != FALLBACK_MESSAGE and len(text) >= 20:
         await store_cache(client_id, search_query, query_embedding_for_cache, text, all_sources)
 
-    return {"response": text, "sources": all_sources, "session_id": session_id}
+    # Evaluate contextual menu triggers and image attachments from compiled snapshot
+    from app.services.context_media_service import (
+        evaluate_menu_triggers,
+        evaluate_image_triggers,
+    )
+    menu_tree = profile.get("menu_tree", [])
+    context_imgs = profile.get("context_images", [])
+    matched_menu = await evaluate_menu_triggers(message, menu_tree, history, llm)
+    matched_images = await evaluate_image_triggers(message, context, context_imgs, history, llm)
+
+    return {
+        "response": text,
+        "sources": all_sources,
+        "session_id": session_id,
+        "interactive_menu": matched_menu,
+        "context_images": matched_images,
+    }
 
 
 # ── Public API: streaming ─────────────────────────────────────────────────────

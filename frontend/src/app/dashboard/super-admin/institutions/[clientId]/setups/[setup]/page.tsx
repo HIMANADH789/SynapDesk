@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
+import type { MenuNode, ContextImage, DescriptiveRule, CompiledProfile } from "@/types";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -198,6 +199,814 @@ function ContextAdaptiveRAGSection({ cfg, editable, onSave }: {
         </div>
       )}
     </Section>
+  );
+}
+
+// ── Recursive Menu Tree Item Component ─────────────────────────────────────────
+function MenuNodeItem({
+  node,
+  depth = 0,
+  editable,
+  onUpdate,
+  onRemove,
+  onAddChild,
+}: {
+  node: MenuNode;
+  depth?: number;
+  editable: boolean;
+  onUpdate: (updated: MenuNode) => void;
+  onRemove: () => void;
+  onAddChild: () => void;
+}) {
+  const isLeaf = !node.children || node.children.length === 0;
+
+  return (
+    <div className={`rounded-xl border ${depth === 0 ? "border-gray-200 bg-white" : "border-gray-200/80 bg-gray-50/50"} p-4 space-y-3`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+            {depth === 0 ? "Root Option" : `Sub-Level ${depth}`}
+          </span>
+          <span className="text-xs text-gray-500 font-mono">
+            {isLeaf ? "🍃 Leaf (Answers question)" : `📂 Branch (${node.children?.length} sub-options)`}
+          </span>
+        </div>
+        {editable && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onAddChild}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline"
+            >
+              + Add Sub-Option
+            </button>
+            <button
+              onClick={onRemove}
+              className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline ml-2"
+            >
+              Delete
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            Display Label <span className="text-gray-400 font-normal">(WhatsApp Button/List text, max 24 chars)</span>
+          </label>
+          <input
+            type="text"
+            value={node.label || ""}
+            onChange={(e) => onUpdate({ ...node, label: e.target.value })}
+            disabled={!editable}
+            placeholder="e.g., Engineering Programs"
+            maxLength={24}
+            className={inputCls}
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            Subtitle / Description <span className="text-gray-400 font-normal">(optional description for lists)</span>
+          </label>
+          <input
+            type="text"
+            value={node.description || ""}
+            onChange={(e) => onUpdate({ ...node, description: e.target.value })}
+            disabled={!editable}
+            placeholder="e.g., B.Tech & M.Tech degree tracks"
+            maxLength={72}
+            className={inputCls}
+          />
+        </div>
+      </div>
+
+      {depth === 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-gray-100 pt-3">
+          <div className="md:col-span-2">
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              🏷️ Descriptor Tag / Trigger Condition <span className="text-gray-400 font-normal">(When to offer this menu hierarchy)</span>
+            </label>
+            <input
+              type="text"
+              value={node.descriptor_tag || ""}
+              onChange={(e) => onUpdate({ ...node, descriptor_tag: e.target.value })}
+              disabled={!editable}
+              placeholder="e.g., When user asks about engineering courses, branch selection, or academic degrees offered"
+              className={`${inputCls} text-xs`}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Trigger Frequency
+            </label>
+            <select
+              value={node.frequency || "on_intent"}
+              onChange={(e) => onUpdate({ ...node, frequency: e.target.value })}
+              disabled={!editable}
+              className={inputCls}
+            >
+              <option value="on_intent">On Intent / Adaptive</option>
+              <option value="only_once">Only Once per Session</option>
+              <option value="always">Always Trigger</option>
+            </select>
+          </div>
+        </div>
+      )}
+
+      {isLeaf && (
+        <div className="border-t border-gray-100 pt-3">
+          <label className="block text-xs font-medium text-indigo-900 mb-1">
+            🎯 Leaf Action Question <span className="text-gray-500 font-normal">(Full detailed question sent to RAG pipeline when clicked)</span>
+          </label>
+          <textarea
+            rows={2}
+            value={node.action_question || ""}
+            onChange={(e) => onUpdate({ ...node, action_question: e.target.value })}
+            disabled={!editable}
+            placeholder="e.g., What are the B.Tech Computer Science admission requirements, eligibility criteria, and fee structure?"
+            className={`${inputCls} text-xs font-sans`}
+          />
+        </div>
+      )}
+
+      {/* Render children recursively */}
+      {node.children && node.children.length > 0 && (
+        <div className="pl-4 border-l-2 border-blue-300/60 space-y-3 mt-3">
+          {node.children.map((child, idx) => (
+            <MenuNodeItem
+              key={child.id || idx}
+              node={child}
+              depth={depth + 1}
+              editable={editable}
+              onUpdate={(updatedChild) => {
+                const newChildren = [...(node.children || [])];
+                newChildren[idx] = updatedChild;
+                onUpdate({ ...node, children: newChildren });
+              }}
+              onRemove={() => {
+                const newChildren = (node.children || []).filter((_, i) => i !== idx);
+                onUpdate({ ...node, children: newChildren });
+              }}
+              onAddChild={() => {
+                const newGrandChild: MenuNode = {
+                  id: crypto.randomUUID(),
+                  label: "New Option",
+                  description: "",
+                  descriptor_tag: "",
+                  frequency: "on_intent",
+                  action_question: "",
+                  children: [],
+                };
+                const newChildren = [...(node.children || [])];
+                newChildren[idx] = {
+                  ...child,
+                  children: [...(child.children || []), newGrandChild],
+                };
+                onUpdate({ ...node, children: newChildren });
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Hierarchical Menu Section ─────────────────────────────────────────────────
+function HierarchicalMenuSection({ cfg, editable, onSave }: {
+  cfg: Record<string, unknown>;
+  editable: boolean;
+  onSave: (fields: Record<string, unknown>) => Promise<void>;
+}) {
+  const [menuTree, setMenuTree] = useState<MenuNode[]>(() => {
+    const raw = (cfg.menu_tree as MenuNode[]) || [];
+    return Array.isArray(raw) ? raw : [];
+  });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  function addRootOption() {
+    const newRoot: MenuNode = {
+      id: crypto.randomUUID(),
+      label: "New Menu Option",
+      description: "",
+      descriptor_tag: "",
+      frequency: "on_intent",
+      action_question: "",
+      children: [],
+    };
+    setMenuTree([...menuTree, newRoot]);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError("");
+    setSaved(false);
+    try {
+      await onSave({ menu_tree: menuTree });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save menu tree");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section title="🌳 Hierarchical Interactive Menus & Sub-Menus (WhatsApp / Widget)">
+      <div className="rounded-lg bg-blue-50 border border-blue-100 p-3.5 text-xs text-blue-900 space-y-1">
+        <p className="font-semibold text-blue-950">How Menu Trees Work:</p>
+        <p>• <strong>Root Option with Descriptor Tag:</strong> The bot contextually serves the menu when the user inquiry matches the descriptor tag.</p>
+        <p>• <strong>Branch Sub-Options:</strong> Tapping a branch opens the next level of sub-options (via WhatsApp Interactive Buttons or Lists).</p>
+        <p>• <strong>Leaf Action Question:</strong> Tapping a leaf sends the full expanded question directly to the RAG pipeline for an official answer.</p>
+      </div>
+
+      <div className="space-y-4">
+        {menuTree.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
+            No interactive menu options configured yet. Click below to add a root option.
+          </div>
+        ) : (
+          menuTree.map((rootNode, idx) => (
+            <MenuNodeItem
+              key={rootNode.id || idx}
+              node={rootNode}
+              depth={0}
+              editable={editable}
+              onUpdate={(updated) => {
+                const next = [...menuTree];
+                next[idx] = updated;
+                setMenuTree(next);
+              }}
+              onRemove={() => {
+                setMenuTree(menuTree.filter((_, i) => i !== idx));
+              }}
+              onAddChild={() => {
+                const newChild: MenuNode = {
+                  id: crypto.randomUUID(),
+                  label: "Sub-Option",
+                  description: "",
+                  descriptor_tag: "",
+                  frequency: "on_intent",
+                  action_question: "",
+                  children: [],
+                };
+                const next = [...menuTree];
+                next[idx] = {
+                  ...rootNode,
+                  children: [...(rootNode.children || []), newChild],
+                };
+                setMenuTree(next);
+              }}
+            />
+          ))
+        )}
+      </div>
+
+      {editable && (
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            onClick={addRootOption}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            + Add Root Menu Option
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 ml-auto"
+          >
+            {saving ? "Saving…" : "Save Menus"}
+          </button>
+          {saved && <span className="text-xs font-medium text-green-600">✓ Menus Saved</span>}
+          {error && <span className="text-xs text-red-600">{error}</span>}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+// ── Contextual Images Section ─────────────────────────────────────────────────
+function ContextualImagesSection({ cfg, editable, onSave }: {
+  cfg: Record<string, unknown>;
+  editable: boolean;
+  onSave: (fields: Record<string, unknown>) => Promise<void>;
+}) {
+  const [images, setImages] = useState<ContextImage[]>(() => {
+    const raw = (cfg.context_images as ContextImage[]) || [];
+    return Array.isArray(raw) ? raw : [];
+  });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  function addImage() {
+    const newImg: ContextImage = {
+      id: crypto.randomUUID(),
+      title: "Campus Map",
+      image_path: "/images/campus_map.png",
+      descriptor_tag: "When user asks for campus map, building layout, directions, or parking",
+      caption: "Official Campus Map & Navigation Guide",
+      frequency: "on_intent",
+    };
+    setImages([...images, newImg]);
+  }
+
+  async function save() {
+    setSaving(true);
+    setError("");
+    setSaved(false);
+    try {
+      await onSave({ context_images: images });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save contextual images");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section title="🖼️ Contextual Images & Media Delivery (WhatsApp)">
+      <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3.5 text-xs text-emerald-900 space-y-1">
+        <p className="font-semibold text-emerald-950">Automatic Media Attachment:</p>
+        <p>• Images stored in the repository public folder (e.g. <code className="bg-emerald-100 px-1 rounded font-mono">/images/campus_map.png</code>) or public URLs are automatically attached when user inquiries match the descriptor tag.</p>
+        <p>• Frequency rule (<code className="font-mono bg-emerald-100 px-1 rounded">only_once</code>) prevents re-sending the same image in a session unless explicitly requested.</p>
+      </div>
+
+      <div className="space-y-4">
+        {images.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
+            No contextual images configured. Click below to add an image.
+          </div>
+        ) : (
+          images.map((img, idx) => (
+            <div key={img.id || idx} className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                  Image #{idx + 1}
+                </span>
+                {editable && (
+                  <button
+                    onClick={() => setImages(images.filter((_, i) => i !== idx))}
+                    className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline"
+                  >
+                    Delete Image
+                  </button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Image Title
+                  </label>
+                  <input
+                    type="text"
+                    value={img.title || ""}
+                    onChange={(e) => {
+                      const next = [...images];
+                      next[idx] = { ...img, title: e.target.value };
+                      setImages(next);
+                    }}
+                    disabled={!editable}
+                    placeholder="e.g., Campus Navigation Map"
+                    className={inputCls}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Image Path or Public URL
+                  </label>
+                  <input
+                    type="text"
+                    value={img.image_path || ""}
+                    onChange={(e) => {
+                      const next = [...images];
+                      next[idx] = { ...img, image_path: e.target.value };
+                      setImages(next);
+                    }}
+                    disabled={!editable}
+                    placeholder="e.g., /images/campus_map.png or https://example.com/map.jpg"
+                    className={`${inputCls} font-mono text-xs`}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-gray-100 pt-3">
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    🏷️ Descriptor Tag / Trigger Context <span className="text-gray-400 font-normal">(Condition when to insert this image)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={img.descriptor_tag || ""}
+                    onChange={(e) => {
+                      const next = [...images];
+                      next[idx] = { ...img, descriptor_tag: e.target.value };
+                      setImages(next);
+                    }}
+                    disabled={!editable}
+                    placeholder="e.g., When user asks for campus map, building layout, hostel directions, or parking"
+                    className={`${inputCls} text-xs`}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    Send Frequency
+                  </label>
+                  <select
+                    value={img.frequency || "on_intent"}
+                    onChange={(e) => {
+                      const next = [...images];
+                      next[idx] = { ...img, frequency: e.target.value };
+                      setImages(next);
+                    }}
+                    disabled={!editable}
+                    className={inputCls}
+                  >
+                    <option value="on_intent">On Intent / Context Match</option>
+                    <option value="only_once">Only Once per Session</option>
+                    <option value="always">Always Include</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">
+                  Image Caption <span className="text-gray-400 font-normal">(optional caption sent in WhatsApp message)</span>
+                </label>
+                <input
+                  type="text"
+                  value={img.caption || ""}
+                  onChange={(e) => {
+                    const next = [...images];
+                    next[idx] = { ...img, caption: e.target.value };
+                    setImages(next);
+                  }}
+                  disabled={!editable}
+                  placeholder="e.g., Official campus map highlighting administrative block and admissions cell."
+                  className={inputCls}
+                />
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {editable && (
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            onClick={addImage}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            + Add Contextual Image
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50 ml-auto"
+          >
+            {saving ? "Saving…" : "Save Images"}
+          </button>
+          {saved && <span className="text-xs font-medium text-green-600">✓ Images Saved</span>}
+          {error && <span className="text-xs text-red-600">{error}</span>}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+// ── Client-Configurable Descriptive Trigger Rules Section ─────────────────────
+function DescriptiveRulesSection({
+  cfg,
+  editable,
+  onSave,
+}: {
+  cfg: Record<string, unknown>;
+  editable: boolean;
+  onSave: (fields: Record<string, unknown>) => Promise<void>;
+}) {
+  const initialRules = Array.isArray(cfg.descriptive_rules)
+    ? (cfg.descriptive_rules as DescriptiveRule[])
+    : [];
+  const [rules, setRules] = useState<DescriptiveRule[]>(initialRules);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  const menuNodes = Array.isArray(cfg.menu_tree) ? (cfg.menu_tree as MenuNode[]) : [];
+  const contextImages = Array.isArray(cfg.context_images) ? (cfg.context_images as ContextImage[]) : [];
+
+  function addRule() {
+    const newId = `rule_${Date.now()}`;
+    setRules([
+      ...rules,
+      {
+        id: newId,
+        title: `Trigger Rule #${rules.length + 1}`,
+        trigger_type: "on_first_turn",
+        prompt_directive: "When user enters or starts the conversation, introduce our primary programs and suggest exploring course options.",
+      },
+    ]);
+  }
+
+  function removeRule(index: number) {
+    setRules(rules.filter((_, i) => i !== index));
+  }
+
+  async function save() {
+    setSaving(true);
+    setError("");
+    setSaved(false);
+    try {
+      await onSave({ descriptive_rules: rules });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save descriptive rules");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section title="✨ Client Descriptive Prompt Policies & Triggers">
+      <div className="rounded-lg bg-purple-50 p-3.5 text-xs text-purple-800 space-y-1">
+        <p className="font-semibold">🎯 Granular Client-Defined Prompt Directives & Trigger Rules</p>
+        <p>
+          Configure customized behavioral instructions that instruct the AI exactly when and how to access descriptive tags,
+          present interactive menus, or emphasize certain context (e.g. on every first user greeting, or when a specific intent is matched).
+          All rules are pre-compiled into the client runtime profile snapshot with zero execution overhead.
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        {rules.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-gray-300 p-6 text-center text-xs text-gray-500">
+            No descriptive trigger rules configured. Click below to add a prompt policy rule.
+          </div>
+        ) : (
+          rules.map((rule, idx) => (
+            <div key={rule.id || idx} className="rounded-lg border border-purple-200 bg-purple-50/20 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Rule Title</label>
+                  <input
+                    type="text"
+                    value={rule.title}
+                    onChange={(e) => {
+                      const next = [...rules];
+                      next[idx] = { ...rule, title: e.target.value };
+                      setRules(next);
+                    }}
+                    disabled={!editable}
+                    placeholder="e.g., First Turn Welcome Directives"
+                    className={`${inputCls} font-medium text-xs`}
+                  />
+                </div>
+                <div className="w-56">
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Trigger Execution</label>
+                  <select
+                    value={rule.trigger_type}
+                    onChange={(e) => {
+                      const next = [...rules];
+                      next[idx] = { ...rule, trigger_type: e.target.value };
+                      setRules(next);
+                    }}
+                    disabled={!editable}
+                    className={`${inputCls} text-xs`}
+                  >
+                    <option value="on_first_turn">On First Turn / Entrance</option>
+                    <option value="on_intent">When Context / Intent Matches</option>
+                    <option value="always">Always Active</option>
+                  </select>
+                </div>
+                {editable && (
+                  <button
+                    onClick={() => removeRule(idx)}
+                    className="text-xs font-medium text-red-600 hover:text-red-700 mt-5 px-2 py-1"
+                  >
+                    ✕ Remove
+                  </button>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Descriptive Prompt Directive <span className="text-gray-400 font-normal">(Inbuilt prompt guideline provided to the RAG session)</span>
+                </label>
+                <textarea
+                  rows={2}
+                  value={rule.prompt_directive}
+                  onChange={(e) => {
+                    const next = [...rules];
+                    next[idx] = { ...rule, prompt_directive: e.target.value };
+                    setRules(next);
+                  }}
+                  disabled={!editable}
+                  placeholder="e.g., On first interaction, greet politely, introduce our 3 major course tracks, and direct the user to explore them."
+                  className={`${inputCls} text-xs font-mono`}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 border-t border-purple-100 pt-2 text-xs">
+                <div>
+                  <label className="block font-medium text-gray-600 mb-1">Target Interactive Menu (Optional)</label>
+                  <select
+                    value={rule.target_menu_id || ""}
+                    onChange={(e) => {
+                      const next = [...rules];
+                      next[idx] = { ...rule, target_menu_id: e.target.value || undefined };
+                      setRules(next);
+                    }}
+                    disabled={!editable}
+                    className={`${inputCls} text-xs`}
+                  >
+                    <option value="">-- No specific menu linked --</option>
+                    {menuNodes.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label} {m.descriptor_tag ? `[Tag: ${m.descriptor_tag}]` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-medium text-gray-600 mb-1">Target Media Asset (Optional)</label>
+                  <select
+                    value={rule.target_image_id || ""}
+                    onChange={(e) => {
+                      const next = [...rules];
+                      next[idx] = { ...rule, target_image_id: e.target.value || undefined };
+                      setRules(next);
+                    }}
+                    disabled={!editable}
+                    className={`${inputCls} text-xs`}
+                  >
+                    <option value="">-- No specific media linked --</option>
+                    {contextImages.map((img) => (
+                      <option key={img.id} value={img.id}>
+                        {img.title} {img.descriptor_tag ? `[Tag: ${img.descriptor_tag}]` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {editable && (
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            onClick={addRule}
+            className="rounded-lg border border-purple-300 bg-white px-4 py-2 text-sm font-medium text-purple-700 hover:bg-purple-50"
+          >
+            + Add Descriptive Rule
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-lg bg-purple-600 px-5 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50 ml-auto"
+          >
+            {saving ? "Saving…" : "Save Descriptive Rules"}
+          </button>
+          {saved && <span className="text-xs font-medium text-green-600">✓ Saved & Compiled</span>}
+          {error && <span className="text-xs text-red-600">{error}</span>}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+// ── Compiled Profile Snapshot Status Card ──────────────────────────────────────
+function CompiledProfileStatusCard({
+  clientId,
+  channel,
+  editable,
+}: {
+  clientId: string;
+  channel: string;
+  editable: boolean;
+}) {
+  const [profile, setProfile] = useState<CompiledProfile | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [recompiling, setRecompiling] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const loadProfile = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.getCompiledProfile(clientId, channel);
+      if (res?.compiled_profile) {
+        setProfile(res.compiled_profile);
+      }
+    } catch {
+      // Not yet compiled or error
+    } finally {
+      setLoading(false);
+    }
+  }, [clientId, channel]);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
+
+  async function handleRecompile() {
+    setRecompiling(true);
+    setMessage("");
+    try {
+      const res = await api.recompileProfile(clientId, channel);
+      if (res?.compiled_profile) {
+        setProfile(res.compiled_profile);
+        setMessage("✓ Profile snapshot recompiled and cached successfully.");
+        setTimeout(() => setMessage(""), 4000);
+      }
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Recompilation failed");
+    } finally {
+      setRecompiling(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50/50 via-white to-blue-50/50 p-6 shadow-sm space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚡</span>
+            <h2 className="text-base font-semibold text-gray-900">Pre-Compiled Client Runtime Profile Snapshot</h2>
+            <span className="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+              Active Runtime Image
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-gray-600">
+            All system prompts, descriptive tag registries, menu indices (O(1) fast lookup), and trigger policies are bundled into an immutable runtime snapshot. Zero DB overhead during chat.
+          </p>
+        </div>
+
+        {editable && (
+          <button
+            onClick={handleRecompile}
+            disabled={recompiling || loading}
+            className="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50 shadow-sm"
+          >
+            {recompiling ? "Recompiling..." : "⚡ Recompile Snapshot"}
+          </button>
+        )}
+      </div>
+
+      {profile && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs border-t border-indigo-100 pt-3">
+          <div>
+            <span className="text-gray-400 block">Version Hash</span>
+            <span className="font-mono font-semibold text-gray-800">{profile.version_hash}</span>
+          </div>
+          <div>
+            <span className="text-gray-400 block">Compiled At</span>
+            <span className="font-medium text-gray-700">
+              {profile.compiled_at ? new Date(profile.compiled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : "Recently"}
+            </span>
+          </div>
+          <div>
+            <span className="text-gray-400 block">Menu Topics Indexed</span>
+            <span className="font-semibold text-indigo-700">{profile.menu_tree?.length || 0} top-level</span>
+          </div>
+          <div>
+            <span className="text-gray-400 block">Descriptive Rules</span>
+            <span className="font-semibold text-purple-700">{profile.descriptive_rules?.length || 0} active</span>
+          </div>
+        </div>
+      )}
+
+      {message && <p className="text-xs font-medium text-green-700">{message}</p>}
+
+      {profile?.compiled_system_prompt && (
+        <div className="border-t border-indigo-100 pt-2">
+          <button
+            onClick={() => setShowPrompt(!showPrompt)}
+            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
+          >
+            {showPrompt ? "Hide Compiled System Prompt ▲" : "View Compiled System Prompt Image ▼"}
+          </button>
+          {showPrompt && (
+            <pre className="mt-2 p-3 bg-gray-900 text-gray-100 text-xs rounded-lg overflow-x-auto whitespace-pre-wrap font-mono leading-relaxed max-h-64 overflow-y-auto">
+              {profile.compiled_system_prompt}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -714,11 +1523,23 @@ export default function SetupConfigPage() {
         </div>
       )}
 
+      {/* Pre-Compiled Runtime Profile Snapshot Status & Compilation Card */}
+      <CompiledProfileStatusCard clientId={clientId} channel={setupChannel} editable={editable} />
+
       {/* Rate limits — all setups */}
       <RateLimitsSection cfg={cfg} editable={editable} onSave={saveConfig} />
 
       {/* Context-Adaptive RAG & Context Carrying — all setups */}
       <ContextAdaptiveRAGSection cfg={cfg} editable={editable} onSave={saveConfig} />
+
+      {/* Hierarchical Interactive Menus & Sub-Menus */}
+      <HierarchicalMenuSection cfg={cfg} editable={editable} onSave={saveConfig} />
+
+      {/* Contextual Images & Media Delivery */}
+      <ContextualImagesSection cfg={cfg} editable={editable} onSave={saveConfig} />
+
+      {/* Client-Configurable Descriptive Trigger Rules */}
+      <DescriptiveRulesSection cfg={cfg} editable={editable} onSave={saveConfig} />
 
       {/* API Key security — web_api only (widget uses Origin lock, not token) */}
       {setupChannel === "web_api" && (

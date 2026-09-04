@@ -173,7 +173,8 @@ async def update_client_settings(client_id: str, settings: dict, user: dict = De
         raise HTTPException(403, "Only super admins or the institution's admin can edit settings")
     allowed = {
         "welcome_message", "system_prompt", "theme_color", "max_history_turns",
-        "menu_options", "chatbot_title", "context_mode", "context_instructions", "context_capacity",
+        "menu_options", "menu_tree", "context_images", "descriptive_rules", "chatbot_title",
+        "context_mode", "context_instructions", "context_capacity",
     }
     if user.get("role") == "super_admin":
         allowed.add("custom_widget_script")
@@ -183,6 +184,15 @@ async def update_client_settings(client_id: str, settings: dict, user: dict = De
     update_fields["updated_at"] = datetime.now(timezone.utc)
     db = get_db()
     await db[CLIENTS].update_one({"client_id": client_id}, {"$set": update_fields})
+
+    # Invalidate and recompile profile snapshot
+    from app.services.profile_compiler import invalidate_client_profile, compile_client_profile
+    invalidate_client_profile(client_id)
+    try:
+        await compile_client_profile(client_id, "widget")
+    except Exception as e:
+        logger.debug("Async profile recompile on settings update: %s", e)
+
     return {"message": "Settings updated"}
 
 @router.get("/{client_id}/widget.js")
@@ -313,6 +323,7 @@ async def update_setup_config(client_id: str, channel: str, body: dict, user: di
         "page_id", "page_access_token",
         "bot_token", "secret_token", "signing_secret",
         "context_mode", "context_instructions", "context_capacity",
+        "menu_tree", "context_images", "descriptive_rules",
     }
     if is_super:
         safe_keys.update({"rate_limit_rpm", "rate_limit_rpd", "max_queries_per_session"})
@@ -330,6 +341,15 @@ async def update_setup_config(client_id: str, channel: str, body: dict, user: di
         {"$set": {update_path: current, "updated_at": datetime.now(timezone.utc)}},
         upsert=True,
     )
+
+    # Invalidate and recompile runtime profile snapshot
+    from app.services.profile_compiler import invalidate_client_profile, compile_client_profile
+    invalidate_client_profile(client_id, channel)
+    try:
+        await compile_client_profile(client_id, channel)
+    except Exception as e:
+        logger.debug("Async profile recompile on setup update: %s", e)
+
     return {"message": f"{channel} config updated"}
 
 
@@ -450,5 +470,35 @@ async def rotate_widget_token(client_id: str, user: dict = Depends(get_current_u
 async def disable_widget_token(client_id: str, user: dict = Depends(get_current_user)):
     """Deprecated: use DELETE /setups/widget/token instead."""
     return await disable_setup_token(client_id, "widget", user)
+
+
+# ── Compiled Profile Snapshot Endpoints ───────────────────────────────────────
+
+@router.get("/{client_id}/compiled-profile")
+async def get_client_compiled_profile(
+    client_id: str,
+    channel: str = Query("widget"),
+    user: dict = Depends(get_current_user),
+):
+    """Retrieve the pre-compiled runtime profile snapshot."""
+    if user.get("role") != "super_admin" and user.get("client_id") != client_id:
+        raise HTTPException(403, "Access denied")
+    from app.services.profile_compiler import get_compiled_profile
+    return await get_compiled_profile(client_id, channel)
+
+
+@router.post("/{client_id}/recompile-profile")
+async def recompile_client_profile_endpoint(
+    client_id: str,
+    channel: str = Query("widget"),
+    user: dict = Depends(get_current_user),
+):
+    """Manually recompile and refresh the client profile runtime image."""
+    if user.get("role") != "super_admin" and user.get("client_id") != client_id:
+        raise HTTPException(403, "Access denied")
+    from app.services.profile_compiler import invalidate_client_profile, compile_client_profile
+    invalidate_client_profile(client_id, channel)
+    profile = await compile_client_profile(client_id, channel)
+    return {"message": "Profile recompiled successfully", "profile": profile}
 
 
