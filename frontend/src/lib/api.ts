@@ -13,8 +13,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error("Unauthorized");
   }
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(error.detail || "Request failed");
+    const errObj = await res.json().catch(() => ({}));
+    let msg = "Request failed";
+    if (typeof errObj.detail === "string") {
+      msg = errObj.detail;
+    } else if (Array.isArray(errObj.detail)) {
+      msg = errObj.detail.map((e: any) => e.msg || JSON.stringify(e)).join("; ");
+    } else if (typeof errObj.message === "string") {
+      msg = errObj.message;
+    } else if (typeof errObj.error === "string") {
+      msg = errObj.error;
+    }
+    throw new Error(msg);
   }
   return res.json();
 }

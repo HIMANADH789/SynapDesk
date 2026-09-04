@@ -54,10 +54,15 @@ export default function SettingsPage() {
   const [savingSetups, setSavingSetups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    const id = getClientIdFromToken();
-    setClientId(id);
+    let id = getClientIdFromToken();
+    if (id) setClientId(id);
 
     api.getMyProfile().then((profile) => {
+      const activeId = profile.client_id || (profile.client as any)?.client_id || id;
+      if (activeId) {
+        setClientId(activeId);
+        id = activeId;
+      }
       const s = (profile.client as unknown as { settings?: any })?.settings;
       const setupsDict = s?.setups ?? {};
       const activeSetup = setupsDict?.whatsapp ?? setupsDict?.widget ?? {};
@@ -76,21 +81,20 @@ export default function SettingsPage() {
         context_images: (s?.context_images && s.context_images.length > 0) ? s.context_images : (activeSetup?.context_images ?? DEFAULTS.context_images),
         descriptive_rules: (s?.descriptive_rules && s.descriptive_rules.length > 0) ? s.descriptive_rules : (activeSetup?.descriptive_rules ?? DEFAULTS.descriptive_rules),
       });
-    }).catch(() => {});
 
-    if (id) {
-      api.listSetups(id).then(res => {
-        setSetups(res.setups);
-        // Load detailed config for enabled channels (like whatsapp)
-        res.setups.filter(s => s.enabled && ["whatsapp", "facebook", "telegram", "slack"].includes(s.channel)).forEach(setup => {
-          api.getSetupConfig(id, setup.channel).then(detail => {
-            setSetupConfigs(prev => ({ ...prev, [setup.channel]: detail.config }));
-          }).catch(() => {});
-        });
-      }).catch(() => {}).finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+      if (activeId) {
+        api.listSetups(activeId).then(res => {
+          setSetups(res.setups);
+          res.setups.filter(s => s.enabled && ["whatsapp", "facebook", "telegram", "slack"].includes(s.channel)).forEach(setup => {
+            api.getSetupConfig(activeId, setup.channel).then(detail => {
+              setSetupConfigs(prev => ({ ...prev, [setup.channel]: detail.config }));
+            }).catch(() => {});
+          });
+        }).catch(() => {}).finally(() => setLoading(false));
+      } else {
+        setLoading(false);
+      }
+    }).catch(() => setLoading(false));
   }, []);
 
   async function saveIntegrationConfig(channel: string) {

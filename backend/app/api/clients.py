@@ -168,6 +168,7 @@ async def get_client(client_id: str):
 @router.patch("/{client_id}/settings")
 async def update_client_settings(client_id: str, settings: dict, user: dict = Depends(get_current_user)):
     """Update global (non-setup) settings: welcome_message, theme_color, system_prompt, max_history_turns."""
+    db = get_db()
     if user.get("role") != "super_admin" and user.get("client_id") != client_id:
         raise HTTPException(403, "Only super admins or the institution's admin can edit settings")
     allowed = {
