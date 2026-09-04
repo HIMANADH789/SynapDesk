@@ -428,6 +428,94 @@ Return ONLY a numbered list of sub-questions, nothing else."""
     return [q for q in sub_questions if q] or [message]
 
 
+# ── Enhancement 7: Context-Adaptive RAG Query Resolution ──────────────────────
+
+_CONTEXT_REWRITE_PROMPT = """You are a precise search query reformulator for an institutional knowledge assistant.
+Given the conversation history and the latest user message, rewrite the user's latest message into a single standalone, unambiguous search query for vector retrieval.
+
+Instructions:
+1. If the user refers to something from previous turns with pronouns ("it", "its", "they", "their", "this", "that", "those", "same"), replace them with the explicit subject/entity mentioned previously (e.g. course name, department, program, fee category).
+2. If the user asks a follow-up fragment (e.g. "what is the fee?", "how to apply?", "eligibility?", "what about hostel?"), combine it with the specific subject being discussed into a complete query (e.g. "B.Tech Computer Science fee structure", "MCA admission eligibility").
+3. Specific tracking criteria for this institution:
+{context_instructions}
+4. If the latest user message is already clear, complete, and self-contained, or is a simple greeting, return it UNCHANGED.
+5. Do NOT answer the question. Do NOT add preamble or reasoning. Return ONLY the rewritten search query.
+
+Conversation history:
+{history_text}
+
+Latest user message: {query}
+Standalone search query:"""
+
+
+async def _resolve_contextual_query(
+    query: str,
+    history: list,
+    llm: LLMProvider,
+    context_mode: str = "none",
+    context_instructions: str = "",
+    context_capacity: int = 4,
+) -> str:
+    """
+    Context-Adaptive RAG: resolves pronouns, elided subjects, and conversational context
+    into a self-contained search query before vector retrieval.
+    """
+    if context_mode == "none" or not history or len(history) <= 1:
+        return query
+
+    # Trim history to context_capacity turns (each turn has user+assistant = 2 msgs)
+    history_slice = history[-(context_capacity * 2 + 1):-1]
+    if not history_slice:
+        return query
+
+    # In adaptive mode, check if rewrite is needed (pronoun / fragment / elision)
+    if context_mode == "adaptive":
+        lower = query.lower().strip()
+        pronoun_triggers = {
+            "it", "its", "they", "them", "their", "theirs", "this", "that", "these", "those",
+            "he", "him", "his", "she", "her", "hers", "same", "there", "then", "above", "mentioned"
+        }
+        words = re.findall(r"\b\w+\b", lower)
+        has_pronoun = any(w in pronoun_triggers for w in words)
+        is_fragment = len(words) <= 5 and any(w in lower for w in (
+            "fee", "cost", "eligibility", "process", "date", "deadline", "how", "what", "where",
+            "when", "apply", "criteria", "contact", "syllabus", "hostel", "cutoff", "quota", "seat",
+            "timing", "requirement", "placement", "faculty", "location", "address"
+        ))
+        # If query is already long and has no pronoun/fragment, skip rewrite
+        if not has_pronoun and not is_fragment and len(words) > 6:
+            return query
+
+    lines = []
+    for msg in history_slice:
+        role = "User" if msg.get("role") == "user" else "Assistant"
+        content = str(msg.get("content", "")).strip().replace("\n", " ")
+        if content:
+            lines.append(f"{role}: {content[:200]}")
+    history_text = "\n".join(lines)
+    if not history_text:
+        return query
+
+    instructions = context_instructions.strip() if context_instructions else "Preserve specific courses, branches, departments, dates, fees, and admission criteria."
+
+    try:
+        await _rate_limiter.acquire()
+        prompt = _CONTEXT_REWRITE_PROMPT.format(
+            query=query,
+            history_text=history_text,
+            context_instructions=instructions,
+        )
+        resp = await llm.generate(prompt, temperature=0.0, max_tokens=100)
+        rewritten = _clean_markdown(resp.text).strip().strip('"').strip("'")
+        if rewritten and len(rewritten) >= 3 and not rewritten.lower().startswith(("here is", "i have", "rewritten", "standalone")):
+            logger.info("Contextual RAG query resolved: '%s' -> '%s'", query, rewritten)
+            return rewritten
+    except Exception as e:
+        logger.debug("Contextual query rewrite failed: %s", e)
+
+    return query
+
+
 # ── Core retrieval (shared by query() and query_stream()) ─────────────────────
 
 async def _retrieve_and_rerank(
@@ -595,19 +683,34 @@ async def query(
     if not can_proceed:
         llm = _get_fallback_llm(llm)
 
+    # Context-Adaptive RAG settings
+    context_mode = _setup_cfg.get("context_mode") or cs.get("context_mode", "none")
+    context_instructions = _setup_cfg.get("context_instructions") or cs.get("context_instructions", "")
+    context_capacity = int(_setup_cfg.get("context_capacity") or cs.get("context_capacity", 4))
+
+    # Resolve contextual query (resolves pronouns / follow-up fragments)
+    search_query = await _resolve_contextual_query(
+        message,
+        history,
+        llm,
+        context_mode=context_mode,
+        context_instructions=context_instructions,
+        context_capacity=context_capacity,
+    )
+
     # Enhancement 6: semantic cache check
     if settings.CACHE_ENABLED:
-        query_embedding_for_cache = await embeddings.embed_query(message)
+        query_embedding_for_cache = await embeddings.embed_query(search_query)
         cached = await check_cache(client_id, query_embedding_for_cache)
         if cached:
-            logger.debug("Cache hit for query: %s", message[:60])
+            logger.debug("Cache hit for query: %s", search_query[:60])
             await add_message(session_id, "assistant", cached["response"], cached["sources"])
             response_time = int((time.time() - start) * 1000)
             await _log_query(client_id, session_id, message, cached["response"], cached["sources"], response_time, "cache", {}, channel=channel)
             return {"response": cached["response"], "sources": cached["sources"], "session_id": session_id}
 
     # Retrieve + rerank
-    all_sources, top_candidates = await _retrieve_and_rerank(client_id, message, llm, embeddings, vectordb)
+    all_sources, top_candidates = await _retrieve_and_rerank(client_id, search_query, llm, embeddings, vectordb)
 
     if not top_candidates:
         await add_message(session_id, "assistant", FALLBACK_MESSAGE)
@@ -616,7 +719,7 @@ async def query(
         return {"response": FALLBACK_MESSAGE, "sources": [], "session_id": session_id}
 
     # Enhancement 1: clarification check
-    clarification = await _check_clarification(message, top_candidates, llm, history=history)
+    clarification = await _check_clarification(search_query, top_candidates, llm, history=history)
     if clarification:
         await add_message(session_id, "assistant", clarification)
         response_time = int((time.time() - start) * 1000)
@@ -641,7 +744,7 @@ async def query(
 
     # Store in semantic cache (only cache valid non-fallback answers)
     if settings.CACHE_ENABLED and text != FALLBACK_MESSAGE and len(text) >= 20:
-        await store_cache(client_id, message, query_embedding_for_cache, text, all_sources)
+        await store_cache(client_id, search_query, query_embedding_for_cache, text, all_sources)
 
     return {"response": text, "sources": all_sources, "session_id": session_id}
 
@@ -714,13 +817,28 @@ async def query_stream(
     if not can_proceed:
         llm = _get_fallback_llm(llm)
 
+    # Context-Adaptive RAG settings
+    context_mode = _setup_cfg.get("context_mode") or cs.get("context_mode", "none")
+    context_instructions = _setup_cfg.get("context_instructions") or cs.get("context_instructions", "")
+    context_capacity = int(_setup_cfg.get("context_capacity") or cs.get("context_capacity", 4))
+
+    # Resolve contextual query (resolves pronouns / follow-up fragments)
+    search_query = await _resolve_contextual_query(
+        message,
+        history,
+        llm,
+        context_mode=context_mode,
+        context_instructions=context_instructions,
+        context_capacity=context_capacity,
+    )
+
     # Enhancement 6: semantic cache
     query_embedding_for_cache = None
     if settings.CACHE_ENABLED:
-        query_embedding_for_cache = await embeddings.embed_query(message)
+        query_embedding_for_cache = await embeddings.embed_query(search_query)
         cached = await check_cache(client_id, query_embedding_for_cache)
         if cached:
-            logger.debug("Cache hit (stream) for query: %s", message[:60])
+            logger.debug("Cache hit (stream) for query: %s", search_query[:60])
             await add_message(session_id, "assistant", cached["response"], cached["sources"])
             response_time = int((time.time() - start) * 1000)
             await _log_query(client_id, session_id, message, cached["response"], cached["sources"], response_time, "cache", {}, channel=channel)
@@ -729,7 +847,7 @@ async def query_stream(
             return
 
     # Retrieve + rerank
-    all_sources, top_candidates = await _retrieve_and_rerank(client_id, message, llm, embeddings, vectordb)
+    all_sources, top_candidates = await _retrieve_and_rerank(client_id, search_query, llm, embeddings, vectordb)
 
     if not top_candidates:
         await add_message(session_id, "assistant", FALLBACK_MESSAGE)
@@ -740,7 +858,7 @@ async def query_stream(
         return
 
     # Enhancement 1: clarification check
-    clarification = await _check_clarification(message, top_candidates, llm, history=history)
+    clarification = await _check_clarification(search_query, top_candidates, llm, history=history)
     if clarification:
         await add_message(session_id, "assistant", clarification)
         response_time = int((time.time() - start) * 1000)
@@ -772,7 +890,7 @@ async def query_stream(
     await _log_query(client_id, session_id, message, full_text, all_sources, response_time, llm.get_model_name(), {}, channel=channel)
 
     if settings.CACHE_ENABLED and query_embedding_for_cache is not None and full_text != FALLBACK_MESSAGE and len(full_text) >= 20:
-        await store_cache(client_id, message, query_embedding_for_cache, full_text, all_sources)
+        await store_cache(client_id, search_query, query_embedding_for_cache, full_text, all_sources)
 
     yield {"type": "done", "session_id": session_id, "sources": all_sources}
 

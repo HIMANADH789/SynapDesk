@@ -171,7 +171,10 @@ async def update_client_settings(client_id: str, settings: dict, user: dict = De
     """Update global (non-setup) settings: welcome_message, theme_color, system_prompt, max_history_turns."""
     if user.get("role") != "super_admin" and user.get("client_id") != client_id:
         raise HTTPException(403, "Only super admins or the institution's admin can edit settings")
-    allowed = {"welcome_message", "system_prompt", "theme_color", "max_history_turns", "menu_options", "chatbot_title"}
+    allowed = {
+        "welcome_message", "system_prompt", "theme_color", "max_history_turns",
+        "menu_options", "chatbot_title", "context_mode", "context_instructions", "context_capacity",
+    }
     if user.get("role") == "super_admin":
         allowed.add("custom_widget_script")
     update_fields = {f"settings.{k}": v for k, v in settings.items() if k in allowed}
@@ -303,12 +306,13 @@ async def update_setup_config(client_id: str, channel: str, body: dict, user: di
 
     current = get_setup(settings, channel)
 
-    # Admins can only edit credentials/origins, Super Admins can edit limits too
+    # Admins can edit credentials/origins and context settings, Super Admins can edit limits too
     safe_keys = {
         "allowed_origins",
         "phone_number_id", "access_token", "app_secret", "verify_token",
         "page_id", "page_access_token",
         "bot_token", "secret_token", "signing_secret",
+        "context_mode", "context_instructions", "context_capacity",
     }
     if is_super:
         safe_keys.update({"rate_limit_rpm", "rate_limit_rpd", "max_queries_per_session"})

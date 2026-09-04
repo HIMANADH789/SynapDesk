@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api";
-import type { WebhookLog } from "@/types";
+import { useAuth } from "@/lib/auth";
+import type { WebhookLog, ClientRecord } from "@/types";
 
 const CHANNEL_INFO: Record<string, { label: string; emoji: string; badgeColor: string }> = {
   whatsapp: { label: "WhatsApp", emoji: "💬", badgeColor: "bg-green-100 text-green-800 border-green-200" },
@@ -31,6 +32,12 @@ function getStatusBadge(status: string) {
 }
 
 export default function RequestLogsPage() {
+  const { role, clientId: userClientId } = useAuth();
+  const isSuperAdmin = role === "super_admin";
+
+  const [clients, setClients] = useState<ClientRecord[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string>("all");
+
   const [logs, setLogs] = useState<WebhookLog[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -45,10 +52,20 @@ export default function RequestLogsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(10); // in seconds (0 = off)
 
+  // Load clients list for super admin dropdown
+  useEffect(() => {
+    if (isSuperAdmin) {
+      api.listClients().then((res) => {
+        setClients(res.clients || []);
+      }).catch(console.error);
+    }
+  }, [isSuperAdmin]);
+
   const fetchLogs = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
     try {
       const res = await api.getWebhookLogs({
+        clientId: isSuperAdmin && selectedClientId !== "all" ? selectedClientId : undefined,
         page,
         pageSize: 25,
         channel: channelFilter !== "all" ? channelFilter : undefined,
@@ -62,7 +79,7 @@ export default function RequestLogsPage() {
     } finally {
       if (!isSilent) setLoading(false);
     }
-  }, [page, channelFilter, statusFilter, searchQuery]);
+  }, [page, channelFilter, statusFilter, searchQuery, isSuperAdmin, selectedClientId]);
 
   useEffect(() => {
     fetchLogs();
@@ -123,6 +140,30 @@ export default function RequestLogsPage() {
       {/* Filter Bar */}
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-3">
         <div className="flex flex-wrap items-center gap-3">
+          {/* Institution Selector for Super Admin */}
+          {isSuperAdmin ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-gray-500">Institution:</span>
+              <select
+                value={selectedClientId}
+                onChange={(e) => { setSelectedClientId(e.target.value); setPage(1); }}
+                className="rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-1.5 text-xs font-semibold text-blue-800 focus:border-blue-500 focus:outline-none"
+              >
+                <option value="all">🏫 All Institutions</option>
+                {clients.map((c) => (
+                  <option key={c.client_id} value={c.client_id}>
+                    {c.name} ({c.client_id})
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : userClientId ? (
+            <div className="inline-flex items-center gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700">
+              <span>🏫 Institution:</span>
+              <span className="font-bold text-blue-700">{userClientId}</span>
+            </div>
+          ) : null}
+
           {/* Channel Selector */}
           <div className="flex items-center gap-1 rounded-lg border border-gray-200 p-1 bg-gray-50 text-xs font-medium">
             <button

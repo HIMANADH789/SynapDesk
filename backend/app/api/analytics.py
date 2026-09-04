@@ -27,6 +27,7 @@ async def get_queries(page: int = 1, page_size: int = 20, user: dict = Depends(g
 
 @router.get("/webhook-logs")
 async def get_webhook_logs(
+    client_id: str | None = None,
     channel: str | None = None,
     status: str | None = None,
     search: str | None = None,
@@ -35,11 +36,18 @@ async def get_webhook_logs(
     user: dict = Depends(get_current_user),
 ):
     """
-    Retrieve real-time request and webhook logs with full JSON payloads and metadata
-    for the logged-in institution.
+    Retrieve real-time request and webhook logs with full JSON payloads and metadata.
+    Super admins can filter across all institutions or select a specific institution.
+    Regular admins only see their own institution.
     """
+    is_super_admin = user.get("role") == "super_admin"
+    if is_super_admin:
+        target_client_id = client_id if (client_id and client_id != "all") else None
+    else:
+        target_client_id = user["client_id"]
+
     return await analytics_service.get_webhook_logs(
-        client_id=user["client_id"],
+        client_id=target_client_id,
         channel=channel,
         status=status,
         search=search,

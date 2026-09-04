@@ -81,6 +81,126 @@ function RateLimitsSection({ cfg, editable, onSave }: {
   );
 }
 
+// ── Context-Adaptive RAG Section ──────────────────────────────────────────────
+function ContextAdaptiveRAGSection({ cfg, editable, onSave }: {
+  cfg: Record<string, unknown>;
+  editable: boolean;
+  onSave: (fields: Record<string, unknown>) => Promise<void>;
+}) {
+  const [mode, setMode] = useState<string>(String(cfg.context_mode ?? "none"));
+  const [instructions, setInstructions] = useState<string>(String(cfg.context_instructions ?? ""));
+  const [capacity, setCapacity] = useState<number>(Number(cfg.context_capacity ?? 4));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  async function save() {
+    setSaving(true);
+    setError("");
+    setSaved(false);
+    try {
+      await onSave({
+        context_mode: mode,
+        context_instructions: instructions,
+        context_capacity: capacity,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save context configuration");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section title="🧠 Context-Adaptive RAG & Context Carrying">
+      <div className="flex items-center justify-between rounded-lg bg-indigo-50 border border-indigo-100 p-3.5 text-xs text-indigo-900">
+        <div className="space-y-1">
+          <p className="font-semibold text-indigo-950 flex items-center gap-1.5">
+            <span>Adaptive Multi-Turn Memory</span>
+            <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
+              mode === "adaptive" ? "bg-indigo-200 text-indigo-900" :
+              mode === "full" ? "bg-purple-200 text-purple-900" : "bg-gray-200 text-gray-700"
+            }`}>
+              Mode: {mode.toUpperCase()}
+            </span>
+          </p>
+          <p className="text-indigo-800">
+            Resolves implicit pronouns (&quot;it&quot;, &quot;its fee&quot;, &quot;their cutoff&quot;) and elided follow-up queries using preceding conversation turns before vector retrieval.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+        <Row label="Context Carrying Mode" hint="Select how contextual information flows across turns">
+          <select
+            value={mode}
+            onChange={(e) => setMode(e.target.value)}
+            disabled={!editable}
+            className={inputCls}
+          >
+            <option value="none">None (Standard / Standalone Retrieval — Default)</option>
+            <option value="adaptive">Adaptive (Auto-detects pronouns &amp; implicit follow-ups)</option>
+            <option value="full">Full (Always re-synthesizes query against chat history)</option>
+          </select>
+        </Row>
+
+        <Row label="Context Memory Capacity" hint="Number of preceding turns (user+assistant) to scan">
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={capacity}
+              onChange={(e) => setCapacity(Math.max(1, Math.min(10, Number(e.target.value))))}
+              disabled={!editable}
+              className={inputCls}
+            />
+            <span className="text-xs text-gray-500 shrink-0">turns (recommended: 4)</span>
+          </div>
+        </Row>
+      </div>
+
+      <Row
+        label="Tracked Entities & Developer Directives"
+        hint="Specify exact entity types, schemas, and fields to preserve in development terminology (zero translation overhead)"
+      >
+        <textarea
+          rows={3}
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          disabled={!editable}
+          placeholder="e.g., Track course_name, branch, fee_structure, quota, admission_category, eligibility_criteria, application_deadline, semester."
+          className={`${inputCls} font-mono text-xs`}
+        />
+      </Row>
+
+      {/* Operational Explanation Card */}
+      <div className="rounded-lg bg-gray-50 border border-gray-200 p-3 text-xs text-gray-600 space-y-1">
+        <p className="font-semibold text-gray-700">How this works in runtime:</p>
+        <p>• <strong>Turn 1:</strong> User asks: <em>&quot;Tell me about B.Tech in Artificial Intelligence&quot;</em></p>
+        <p>• <strong>Turn 2:</strong> User asks: <em>&quot;What is its fee and when is the last date?&quot;</em></p>
+        <p>• <strong>Adaptive RAG:</strong> Resolves pronoun &apos;its&apos; to <em>&quot;B.Tech in Artificial Intelligence fee structure and application deadline&quot;</em> for precise vector retrieval and reranking.</p>
+      </div>
+
+      {editable && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Context Settings"}
+          </button>
+          {saved && <span className="text-xs font-medium text-green-600">✓ Context Settings Saved</span>}
+          {error && <span className="text-xs text-red-600">{error}</span>}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 // ── Token security (widget / web_api) ──────────────────────────────────────────
 function TokenSection({ cfg, channel, clientId, editable }: {
   cfg: Record<string, unknown>;
@@ -463,6 +583,72 @@ function WidgetEmbedSection({ clientId, cfg }: { clientId: string; cfg: Record<s
   );
 }
 
+function CustomScriptSection({ clientId, editable }: { clientId: string; editable: boolean }) {
+  const [customScript, setCustomScript] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getClientConfig(clientId).then(config => {
+      if (config?.settings?.custom_widget_script !== undefined) {
+        setCustomScript(config.settings.custom_widget_script || "");
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [clientId]);
+
+  async function save() {
+    setSaving(true); setError(""); setSaved(false);
+    try {
+      await api.updateClientSettings(clientId, { custom_widget_script: customScript });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save script");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section title="Custom Widget Script">
+      <p className="text-xs text-gray-500">
+        Edit the raw custom JavaScript for this institution. This overrides the standard widget behaviour and allows custom integrations.
+      </p>
+      {loading ? (
+        <div className="h-24 flex items-center justify-center">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+        </div>
+      ) : (
+        <>
+          <textarea
+            value={customScript}
+            onChange={(e) => setCustomScript(e.target.value)}
+            disabled={!editable}
+            className="w-full h-80 font-mono text-xs border border-gray-300 rounded-lg p-3 focus:border-blue-500 focus:outline-none"
+            placeholder="// Paste or edit custom widget script here..."
+            spellCheck={false}
+          />
+          {editable && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={save}
+                disabled={saving}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save Custom Script"}
+              </button>
+              {saved && <span className="text-xs text-green-600 font-semibold">Custom script saved successfully!</span>}
+              {error && <span className="text-xs text-red-600">{error}</span>}
+            </div>
+          )}
+        </>
+      )}
+    </Section>
+  );
+}
+
 // ── Main setup page ────────────────────────────────────────────────────────────
 
 export default function SetupConfigPage() {
@@ -531,6 +717,9 @@ export default function SetupConfigPage() {
       {/* Rate limits — all setups */}
       <RateLimitsSection cfg={cfg} editable={editable} onSave={saveConfig} />
 
+      {/* Context-Adaptive RAG & Context Carrying — all setups */}
+      <ContextAdaptiveRAGSection cfg={cfg} editable={editable} onSave={saveConfig} />
+
       {/* API Key security — web_api only (widget uses Origin lock, not token) */}
       {setupChannel === "web_api" && (
         <TokenSection cfg={cfg} channel={setupChannel} clientId={clientId} editable={editable} />
@@ -543,11 +732,19 @@ export default function SetupConfigPage() {
 
       {/* Widget embed code */}
       {setupChannel === "widget" && (
-        <WidgetEmbedSection clientId={clientId} cfg={cfg} />
+        <>
+          <WidgetEmbedSection clientId={clientId} cfg={cfg} />
+          <CustomScriptSection clientId={clientId} editable={editable} />
+        </>
       )}
 
       {/* Channel-specific credentials */}
-      {setupChannel === "whatsapp" && <WhatsAppCredentials cfg={cfg} clientId={clientId} editable={editable} onSave={saveConfig} />}
+      {setupChannel === "whatsapp" && (
+        <>
+          <WhatsAppCredentials cfg={cfg} clientId={clientId} editable={editable} onSave={saveConfig} />
+          <CustomScriptSection clientId={clientId} editable={editable} />
+        </>
+      )}
       {setupChannel === "facebook" && <FacebookCredentials cfg={cfg} clientId={clientId} editable={editable} onSave={saveConfig} />}
       {setupChannel === "telegram" && <TelegramCredentials cfg={cfg} clientId={clientId} editable={editable} onSave={saveConfig} />}
       {setupChannel === "slack" && <SlackCredentials cfg={cfg} clientId={clientId} editable={editable} onSave={saveConfig} />}

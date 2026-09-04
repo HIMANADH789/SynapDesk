@@ -26,6 +26,9 @@ If the context does not contain enough information to answer the question, say s
 Be concise, friendly, and professional.`,
   theme_color: "#1E40AF",
   max_history_turns: 5,
+  context_mode: "none",
+  context_instructions: "",
+  context_capacity: 4,
   menu_options: [],
 };
 
@@ -59,6 +62,9 @@ export default function SettingsPage() {
         system_prompt: s?.system_prompt ?? DEFAULTS.system_prompt,
         theme_color: s?.theme_color ?? DEFAULTS.theme_color,
         max_history_turns: s?.max_history_turns ?? DEFAULTS.max_history_turns,
+        context_mode: s?.context_mode ?? DEFAULTS.context_mode,
+        context_instructions: s?.context_instructions ?? DEFAULTS.context_instructions,
+        context_capacity: s?.context_capacity ?? DEFAULTS.context_capacity,
         menu_options: s?.menu_options ?? DEFAULTS.menu_options,
       });
     }).catch(() => {});
@@ -243,6 +249,76 @@ export default function SettingsPage() {
                   </option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          {/* Context-Adaptive RAG & Multi-Turn Memory */}
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-indigo-950 flex items-center gap-2">
+                  <span>🧠 Context-Adaptive RAG (Context Carrying)</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                    settings.context_mode === "adaptive" ? "bg-indigo-200 text-indigo-900" :
+                    settings.context_mode === "full" ? "bg-purple-200 text-purple-900" : "bg-gray-200 text-gray-700"
+                  }`}>
+                    {(settings.context_mode || "none").toUpperCase()}
+                  </span>
+                </h3>
+                <p className="text-xs text-indigo-700 mt-0.5">
+                  Resolves pronouns (&quot;it&quot;, &quot;its fee&quot;, &quot;that department&quot;) into unambiguous search queries before vector retrieval.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-gray-700">
+                  Context Carrying Mode
+                </label>
+                <select
+                  value={settings.context_mode || "none"}
+                  onChange={(e) => setSettings((s) => ({ ...s, context_mode: e.target.value }))}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="none">None (Standard / Standalone Retrieval — Default)</option>
+                  <option value="adaptive">Adaptive (Auto-detects pronouns &amp; follow-up questions)</option>
+                  <option value="full">Full (Always synthesizes query against chat history)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-gray-700">
+                  Context Memory Capacity
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={settings.context_capacity ?? 4}
+                    onChange={(e) => setSettings((s) => ({ ...s, context_capacity: Math.max(1, Math.min(10, Number(e.target.value))) }))}
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                  <span className="text-xs text-gray-500 shrink-0">turns</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-gray-700">
+                Tracked Details &amp; Developer Directives
+              </label>
+              <p className="mb-1 text-xs text-gray-400">
+                Specify entities, fields, and details to retain in direct development terminology (zero translation overhead).
+              </p>
+              <textarea
+                rows={2}
+                value={settings.context_instructions || ""}
+                onChange={(e) => setSettings((s) => ({ ...s, context_instructions: e.target.value }))}
+                placeholder="e.g., Track course_name, branch, fee_structure, admission_category, eligibility_criteria, application_deadline, semester."
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-mono focus:border-blue-500 focus:outline-none"
+              />
             </div>
           </div>
         </div>

@@ -265,7 +265,7 @@ async def get_query_logs(client_id: str, page: int = 1, page_size: int = 20) -> 
 
 
 async def get_webhook_logs(
-    client_id: str,
+    client_id: str | None = None,
     channel: str | None = None,
     status: str | None = None,
     search: str | None = None,
@@ -278,7 +278,9 @@ async def get_webhook_logs(
     """
     db = get_db()
     skip = (page - 1) * page_size
-    match: dict = {"client_id": client_id}
+    match: dict = {}
+    if client_id and client_id != "all":
+        match["client_id"] = client_id
 
     if channel and channel != "all":
         match["channel"] = channel

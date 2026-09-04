@@ -22,6 +22,9 @@ def setup_defaults(channel: str) -> dict:
         "rate_limit_rpm": 20,
         "rate_limit_rpd": 200,
         "max_queries_per_session": 50,
+        "context_mode": "none",              # "none" | "adaptive" | "full"
+        "context_instructions": "",          # Specific entities/details to track
+        "context_capacity": 4,               # Number of turns to scan
     }
     if channel == "widget":
         base.update({"allowed_origins": []})   # secured by Origin header, no token needed
@@ -115,6 +118,11 @@ class ClientSettings(BaseModel):
     chatbot_title: str = "AI Front Desk"
     custom_widget_script: str = ""
     menu_options: list[MenuOption] = Field(default_factory=list)
+
+    # Context-Adaptive RAG settings
+    context_mode: str = "none"              # "none" | "adaptive" | "full"
+    context_instructions: str = ""
+    context_capacity: int = 4
 
     # Per-setup configs (widget, web_api, whatsapp, facebook, telegram, slack)
     setups: Dict[str, Any] = Field(default_factory=default_setups)

@@ -84,6 +84,9 @@ export interface SetupSummary {
   rate_limit_rpd: number;
   max_queries_per_session: number;
   token_set?: boolean; // only for widget / web_api
+  context_mode?: "none" | "adaptive" | "full" | string;
+  context_instructions?: string;
+  context_capacity?: number;
 }
 
 export interface ChannelStats {
@@ -130,6 +133,9 @@ export interface ClientSettings {
   menu_options?: MenuOption[];
   system_prompt?: string;
   max_history_turns?: number;
+  context_mode?: "none" | "adaptive" | "full" | string;
+  context_instructions?: string;
+  context_capacity?: number;
   setups?: Record<string, Record<string, unknown>>;
 }
 

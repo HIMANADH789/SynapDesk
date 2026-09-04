@@ -27,9 +27,6 @@ export default function InstitutionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [customScript, setCustomScript] = useState("");
-  const [savingScript, setSavingScript] = useState(false);
-  const [scriptSaved, setScriptSaved] = useState(false);
   const [setups, setSetups] = useState<any[]>([]);
 
   useEffect(() => {
@@ -46,11 +43,6 @@ export default function InstitutionDetailPage() {
         setData(stats);
         if (page === 1) {
           api.listSetups(clientId).then(res => setSetups(res.setups)).catch(() => {});
-          return api.getClientConfig(clientId).then(config => {
-            if (config?.settings?.custom_widget_script !== undefined) {
-              setCustomScript(config.settings.custom_widget_script || "");
-            }
-          }).catch(() => {});
         }
       })
       .catch((e) => setError(e.message))
@@ -90,19 +82,6 @@ export default function InstitutionDetailPage() {
       alert(`Limits saved for ${channel}`);
     } catch (e: any) {
       alert("Failed to save limits: " + e.message);
-    }
-  }
-
-  async function saveScript() {
-    setSavingScript(true);
-    try {
-      await api.updateClientSettings(clientId, { custom_widget_script: customScript });
-      setScriptSaved(true);
-      setTimeout(() => setScriptSaved(false), 3000);
-    } catch (e: any) {
-      alert("Failed to save script: " + e.message);
-    } finally {
-      setSavingScript(false);
     }
   }
 
@@ -300,28 +279,6 @@ export default function InstitutionDetailPage() {
           </div>
         </div>
       )}
-
-      {/* Widget Script */}
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white p-5 mt-6">
-        <h2 className="mb-2 font-semibold text-gray-800">Widget Script Customization</h2>
-        <p className="mb-4 text-sm text-gray-500">Edit the raw JavaScript for this client's widget. This completely overrides the default script.</p>
-        <textarea 
-          value={customScript}
-          onChange={(e) => setCustomScript(e.target.value)}
-          className="w-full h-96 font-mono text-sm border border-gray-300 rounded p-4 mb-4"
-          spellCheck={false}
-        />
-        <div className="flex items-center gap-3">
-          <button 
-            onClick={saveScript}
-            disabled={savingScript}
-            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-          >
-            {savingScript ? "Saving..." : "Save Script"}
-          </button>
-          {scriptSaved && <span className="text-sm text-green-600">Script saved!</span>}
-        </div>
-      </div>
     </div>
   );
 }
