@@ -266,6 +266,22 @@
                 } else if (h.type === "done") {
                   if (h.session_id) E = h.session_id;
                   if (i) i.remove();
+                  let subOpts = (h.interactive_menu && h.interactive_menu.children) ? h.interactive_menu.children : [];
+                  if (subOpts.length > 0) {
+                    let t = f("bot", "Options for " + (h.interactive_menu.label || "this topic") + ":");
+                    let qr = document.createElement("div");
+                    qr.className = "quick-replies";
+                    subOpts.forEach(c => {
+                      let qb = document.createElement("button");
+                      qb.type = "button";
+                      qb.className = "quick-reply-btn";
+                      qb.textContent = c.label;
+                      qb.onclick = () => sendMsg(c.action_question || c.label);
+                      qr.appendChild(qb);
+                    });
+                    t.appendChild(qr);
+                    a.scrollTop = a.scrollHeight;
+                  }
                 } else if (h.type === "error") {
                   $(); if (i) i.remove();
                   f("bot", h.content || "Error generating response.");
@@ -311,21 +327,26 @@
         btn.style.animationDelay = (idx * 0.2) + "s";
         btn.onclick = () => {
           if (!r) l.click();
-          if (menu.sub_questions && menu.sub_questions.length > 0) {
-            let t = f("bot", "Common questions about " + menu.label + ":");
+          let subItems = menu.children || menu.sub_questions || [];
+          if (subItems.length > 0) {
+            let t = f("bot", "Questions about " + menu.label + ":");
             let qr = document.createElement("div");
             qr.className = "quick-replies";
-            menu.sub_questions.forEach(q => {
-              if (!q.trim()) return;
+            subItems.forEach(item => {
+              let label = typeof item === "string" ? item : (item.label || item.action_question || "");
+              let qToSend = typeof item === "string" ? item : (item.action_question || item.label || "");
+              if (!label.trim()) return;
               let qb = document.createElement("button");
               qb.type = "button";
               qb.className = "quick-reply-btn";
-              qb.textContent = q;
-              qb.onclick = () => sendMsg(q);
+              qb.textContent = label;
+              qb.onclick = () => sendMsg(qToSend);
               qr.appendChild(qb);
             });
             t.appendChild(qr);
             a.scrollTop = a.scrollHeight;
+          } else if (menu.action_question) {
+            sendMsg(menu.action_question);
           }
         };
         menuContainer.appendChild(btn);
@@ -338,8 +359,9 @@
       .then(res => res.json())
       .then(data => {
         f("bot", data?.settings?.welcome_message || "Hello! How can I help you today?");
-        if (data?.settings?.menu_options) {
-          renderMenuOptions(data.settings.menu_options);
+        let menus = data?.settings?.menu_tree || data?.settings?.menu_options;
+        if (menus && menus.length > 0) {
+          renderMenuOptions(menus);
         }
       })
       .catch(() => f("bot", "Hello! How can I help you today?"));

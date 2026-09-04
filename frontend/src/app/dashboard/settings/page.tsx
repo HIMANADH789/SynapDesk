@@ -58,20 +58,23 @@ export default function SettingsPage() {
     setClientId(id);
 
     api.getMyProfile().then((profile) => {
-      const s = (profile.client as unknown as { settings?: Partial<ClientSettings> })?.settings;
+      const s = (profile.client as unknown as { settings?: any })?.settings;
+      const setupsDict = s?.setups ?? {};
+      const activeSetup = setupsDict?.whatsapp ?? setupsDict?.widget ?? {};
+
       setSettings({
         welcome_message: s?.welcome_message ?? DEFAULTS.welcome_message,
         chatbot_title: s?.chatbot_title ?? DEFAULTS.chatbot_title,
-        system_prompt: s?.system_prompt ?? DEFAULTS.system_prompt,
+        system_prompt: s?.system_prompt ?? activeSetup?.system_prompt ?? DEFAULTS.system_prompt,
         theme_color: s?.theme_color ?? DEFAULTS.theme_color,
         max_history_turns: s?.max_history_turns ?? DEFAULTS.max_history_turns,
-        context_mode: s?.context_mode ?? DEFAULTS.context_mode,
-        context_instructions: s?.context_instructions ?? DEFAULTS.context_instructions,
-        context_capacity: s?.context_capacity ?? DEFAULTS.context_capacity,
+        context_mode: (s?.context_mode && s?.context_mode !== "none") ? s.context_mode : (activeSetup?.context_mode ?? DEFAULTS.context_mode),
+        context_instructions: s?.context_instructions ?? activeSetup?.context_instructions ?? DEFAULTS.context_instructions,
+        context_capacity: s?.context_capacity ?? activeSetup?.context_capacity ?? DEFAULTS.context_capacity,
         menu_options: s?.menu_options ?? DEFAULTS.menu_options,
-        menu_tree: s?.menu_tree ?? DEFAULTS.menu_tree,
-        context_images: s?.context_images ?? DEFAULTS.context_images,
-        descriptive_rules: s?.descriptive_rules ?? DEFAULTS.descriptive_rules,
+        menu_tree: (s?.menu_tree && s.menu_tree.length > 0) ? s.menu_tree : (activeSetup?.menu_tree ?? DEFAULTS.menu_tree),
+        context_images: (s?.context_images && s.context_images.length > 0) ? s.context_images : (activeSetup?.context_images ?? DEFAULTS.context_images),
+        descriptive_rules: (s?.descriptive_rules && s.descriptive_rules.length > 0) ? s.descriptive_rules : (activeSetup?.descriptive_rules ?? DEFAULTS.descriptive_rules),
       });
     }).catch(() => {});
 
@@ -383,14 +386,14 @@ export default function SettingsPage() {
             <div key={rootNode.id || idx} className="rounded-xl border border-gray-200 p-4 space-y-3 bg-white">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded bg-blue-100 text-blue-800">
-                  Root Option #{idx + 1}
+                  Level 1: Root Topic #{idx + 1}
                 </span>
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => {
                       const newChild: MenuNode = {
                         id: crypto.randomUUID(),
-                        label: "Sub-Option",
+                        label: "Sub-menu Question",
                         description: "",
                         descriptor_tag: "",
                         frequency: "on_intent",
@@ -406,7 +409,7 @@ export default function SettingsPage() {
                     }}
                     className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline"
                   >
-                    + Add Sub-Option
+                    + Add Sub-menu Question
                   </button>
                   <button
                     onClick={() => {
@@ -521,7 +524,7 @@ export default function SettingsPage() {
                   {rootNode.children.map((child, cIdx) => (
                     <div key={child.id || cIdx} className="rounded-lg border border-blue-100 bg-blue-50/40 p-3 space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-blue-700">Sub-Option #{cIdx + 1}</span>
+                        <span className="text-xs font-bold text-blue-700">Level 2: Sub-menu Question #{cIdx + 1}</span>
                         <button
                           onClick={() => {
                             const newChildren = (rootNode.children || []).filter((_, i) => i !== cIdx);
@@ -546,7 +549,7 @@ export default function SettingsPage() {
                             next[idx] = { ...rootNode, children: newChildren };
                             setSettings({ ...settings, menu_tree: next });
                           }}
-                          placeholder="Sub-Option Label"
+                          placeholder="Sub-menu Title (e.g., CA Course)"
                           maxLength={24}
                           className="rounded border border-gray-300 px-3 py-1.5 text-xs bg-white"
                         />
@@ -567,8 +570,8 @@ export default function SettingsPage() {
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-medium text-indigo-900 mb-0.5">
-                          🎯 Leaf Action Question for RAG:
+                        <label className="block text-[11px] font-semibold text-indigo-950 mb-0.5">
+                          🎯 Question Feeding RAG Pipeline (Sent to AI when selected):
                         </label>
                         <input
                           type="text"

@@ -158,7 +158,7 @@ async def get_client(client_id: str):
     db = get_db()
     client = await db[CLIENTS].find_one(
         {"client_id": client_id},
-        {"_id": 0, "settings.welcome_message": 1, "settings.theme_color": 1, "settings.menu_options": 1, "settings.chatbot_title": 1, "name": 1},
+        {"_id": 0, "settings.welcome_message": 1, "settings.theme_color": 1, "settings.menu_options": 1, "settings.menu_tree": 1, "settings.chatbot_title": 1, "name": 1},
     )
     if not client:
         raise HTTPException(404, "Client not found")
@@ -180,17 +180,25 @@ async def update_client_settings(client_id: str, settings: dict, user: dict = De
     update_fields = {f"settings.{k}": v for k, v in settings.items() if k in allowed}
     if not update_fields:
         raise HTTPException(400, "No valid settings fields")
-    update_fields["updated_at"] = datetime.now(timezone.utc)
-    db = get_db()
+    # Also sync shared settings to existing channel setups so interfaces are never out of sync
+    client_doc = await db[CLIENTS].find_one({"client_id": client_id})
+    existing_setups = (client_doc or {}).get("settings", {}).get("setups", {})
+    shared_sync_keys = {"context_mode", "context_instructions", "context_capacity", "menu_tree", "context_images", "descriptive_rules"}
+    for ch_name in existing_setups.keys():
+        for k in shared_sync_keys:
+            if k in settings:
+                update_fields[f"settings.setups.{ch_name}.{k}"] = settings[k]
+
     await db[CLIENTS].update_one({"client_id": client_id}, {"$set": update_fields})
 
-    # Invalidate and recompile profile snapshot
+    # Invalidate and recompile profile snapshots across all channels
     from app.services.profile_compiler import invalidate_client_profile, compile_client_profile
     invalidate_client_profile(client_id)
-    try:
-        await compile_client_profile(client_id, "widget")
-    except Exception as e:
-        logger.debug("Async profile recompile on settings update: %s", e)
+    for ch in ALL_SETUPS:
+        try:
+            await compile_client_profile(client_id, ch)
+        except Exception:
+            pass
 
     return {"message": "Settings updated"}
 
@@ -335,17 +343,30 @@ async def update_setup_config(client_id: str, channel: str, body: dict, user: di
                 current[k] = v
 
     update_path = f"settings.setups.{channel}"
+    update_dict = {
+        update_path: current,
+        "updated_at": datetime.now(timezone.utc),
+    }
+    # Bidirectional sync: sync context, menu, and rules to root settings so Admin portal stays consistent
+    shared_sync_keys = {"context_mode", "context_instructions", "context_capacity", "menu_tree", "context_images", "descriptive_rules"}
+    for k in shared_sync_keys:
+        if k in current and current[k]:
+            update_dict[f"settings.{k}"] = current[k]
+
     await db[CLIENTS].update_one(
         {"client_id": client_id},
-        {"$set": {update_path: current, "updated_at": datetime.now(timezone.utc)}},
+        {"$set": update_dict},
         upsert=True,
     )
 
-    # Invalidate and recompile runtime profile snapshot
+    # Invalidate and recompile runtime profile snapshots
     from app.services.profile_compiler import invalidate_client_profile, compile_client_profile
     invalidate_client_profile(client_id, channel)
+    invalidate_client_profile(client_id, "widget")
     try:
         await compile_client_profile(client_id, channel)
+        if channel != "widget":
+            await compile_client_profile(client_id, "widget")
     except Exception as e:
         logger.debug("Async profile recompile on setup update: %s", e)
 

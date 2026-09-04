@@ -202,43 +202,29 @@ function ContextAdaptiveRAGSection({ cfg, editable, onSave }: {
   );
 }
 
-// ── Recursive Menu Tree Item Component ─────────────────────────────────────────
-function MenuNodeItem({
-  node,
-  depth = 0,
-  editable,
-  onUpdate,
-  onRemove,
-  onAddChild,
-}: {
-  node: MenuNode;
-  depth?: number;
-  editable: boolean;
-  onUpdate: (updated: MenuNode) => void;
-  onRemove: () => void;
-  onAddChild: () => void;
-}) {
-  const isLeaf = !node.children || node.children.length === 0;
+// ── Recursive Menu Tree Item Component ────────────────────────────────────  const isLeaf = depth >= 1 || (!node.children || node.children.length === 0);
 
   return (
-    <div className={`rounded-xl border ${depth === 0 ? "border-gray-200 bg-white" : "border-gray-200/80 bg-gray-50/50"} p-4 space-y-3`}>
+    <div className={`rounded-xl border ${depth === 0 ? "border-gray-200 bg-white" : "border-blue-100 bg-blue-50/40"} p-4 space-y-3`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold px-2 py-0.5 rounded bg-blue-100 text-blue-800">
-            {depth === 0 ? "Root Option" : `Sub-Level ${depth}`}
+          <span className={`text-xs font-bold px-2.5 py-0.5 rounded ${depth === 0 ? "bg-blue-100 text-blue-800" : "bg-indigo-100 text-indigo-800"}`}>
+            {depth === 0 ? "Level 1: Root Topic" : "Level 2: Sub-menu Question"}
           </span>
           <span className="text-xs text-gray-500 font-mono">
-            {isLeaf ? "🍃 Leaf (Answers question)" : `📂 Branch (${node.children?.length} sub-options)`}
+            {depth === 0 ? `📂 Root (${node.children?.length || 0} sub-questions)` : "🎯 Leaf Question (Feeds RAG)"}
           </span>
         </div>
         {editable && (
           <div className="flex items-center gap-2">
-            <button
-              onClick={onAddChild}
-              className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline"
-            >
-              + Add Sub-Option
-            </button>
+            {depth === 0 && (
+              <button
+                onClick={onAddChild}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline"
+              >
+                + Add Sub-menu Question
+              </button>
+            )}
             <button
               onClick={onRemove}
               className="text-xs text-red-500 hover:text-red-700 font-medium hover:underline ml-2"
@@ -252,14 +238,14 @@ function MenuNodeItem({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">
-            Display Label <span className="text-gray-400 font-normal">(WhatsApp Button/List text, max 24 chars)</span>
+            {depth === 0 ? "Root Topic Label" : "Sub-menu Question Title"} <span className="text-gray-400 font-normal">(Button / List text, max 24 chars)</span>
           </label>
           <input
             type="text"
             value={node.label || ""}
             onChange={(e) => onUpdate({ ...node, label: e.target.value })}
             disabled={!editable}
-            placeholder="e.g., Engineering Programs"
+            placeholder={depth === 0 ? "e.g., Commerce Programs" : "e.g., CA Course Details"}
             maxLength={24}
             className={inputCls}
           />
@@ -267,14 +253,14 @@ function MenuNodeItem({
 
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1">
-            Subtitle / Description <span className="text-gray-400 font-normal">(optional description for lists)</span>
+            Subtitle / Description <span className="text-gray-400 font-normal">(optional description)</span>
           </label>
           <input
             type="text"
             value={node.description || ""}
             onChange={(e) => onUpdate({ ...node, description: e.target.value })}
             disabled={!editable}
-            placeholder="e.g., B.Tech & M.Tech degree tracks"
+            placeholder="e.g., Foundation, Intermediate & eligibility"
             maxLength={72}
             className={inputCls}
           />
@@ -285,14 +271,14 @@ function MenuNodeItem({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 border-t border-gray-100 pt-3">
           <div className="md:col-span-2">
             <label className="block text-xs font-medium text-gray-700 mb-1">
-              🏷️ Descriptor Tag / Trigger Condition <span className="text-gray-400 font-normal">(When to offer this menu hierarchy)</span>
+              🏷️ Descriptor Tag / Trigger Condition <span className="text-gray-400 font-normal">(When to offer this menu)</span>
             </label>
             <input
               type="text"
               value={node.descriptor_tag || ""}
               onChange={(e) => onUpdate({ ...node, descriptor_tag: e.target.value })}
               disabled={!editable}
-              placeholder="e.g., When user asks about engineering courses, branch selection, or academic degrees offered"
+              placeholder="e.g., When user asks about courses, coaching, or career guidance"
               className={`${inputCls} text-xs`}
             />
           </div>
@@ -315,30 +301,30 @@ function MenuNodeItem({
         </div>
       )}
 
-      {isLeaf && (
-        <div className="border-t border-gray-100 pt-3">
-          <label className="block text-xs font-medium text-indigo-900 mb-1">
-            🎯 Leaf Action Question <span className="text-gray-500 font-normal">(Full detailed question sent to RAG pipeline when clicked)</span>
+      {depth >= 1 && (
+        <div className="border-t border-blue-200/60 pt-3">
+          <label className="block text-xs font-semibold text-indigo-950 mb-1">
+            🎯 Sub-menu Question Sent to RAG Pipeline <span className="text-gray-500 font-normal">(Full detailed question fed to AI)</span>
           </label>
           <textarea
             rows={2}
             value={node.action_question || ""}
             onChange={(e) => onUpdate({ ...node, action_question: e.target.value })}
             disabled={!editable}
-            placeholder="e.g., What are the B.Tech Computer Science admission requirements, eligibility criteria, and fee structure?"
+            placeholder="e.g., What are the complete details about the CA course at SV Professional Institute including Foundation, Intermediate, and eligibility?"
             className={`${inputCls} text-xs font-sans`}
           />
         </div>
       )}
 
-      {/* Render children recursively */}
-      {node.children && node.children.length > 0 && (
+      {/* Render Level 2 children */}
+      {depth === 0 && node.children && node.children.length > 0 && (
         <div className="pl-4 border-l-2 border-blue-300/60 space-y-3 mt-3">
           {node.children.map((child, idx) => (
             <MenuNodeItem
               key={child.id || idx}
               node={child}
-              depth={depth + 1}
+              depth={1}
               editable={editable}
               onUpdate={(updatedChild) => {
                 const newChildren = [...(node.children || [])];
@@ -349,23 +335,7 @@ function MenuNodeItem({
                 const newChildren = (node.children || []).filter((_, i) => i !== idx);
                 onUpdate({ ...node, children: newChildren });
               }}
-              onAddChild={() => {
-                const newGrandChild: MenuNode = {
-                  id: crypto.randomUUID(),
-                  label: "New Option",
-                  description: "",
-                  descriptor_tag: "",
-                  frequency: "on_intent",
-                  action_question: "",
-                  children: [],
-                };
-                const newChildren = [...(node.children || [])];
-                newChildren[idx] = {
-                  ...child,
-                  children: [...(child.children || []), newGrandChild],
-                };
-                onUpdate({ ...node, children: newChildren });
-              }}
+              onAddChild={() => {}}
             />
           ))}
         </div>
