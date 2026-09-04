@@ -202,7 +202,23 @@ function ContextAdaptiveRAGSection({ cfg, editable, onSave }: {
   );
 }
 
-// ── Recursive Menu Tree Item Component ────────────────────────────────────  const isLeaf = depth >= 1 || (!node.children || node.children.length === 0);
+// ── Recursive Menu Tree Item Component ────────────────────────────────────
+function MenuNodeItem({
+  node,
+  depth = 0,
+  editable,
+  onUpdate,
+  onRemove,
+  onAddChild,
+}: {
+  node: MenuNode;
+  depth?: number;
+  editable: boolean;
+  onUpdate: (updated: MenuNode) => void;
+  onRemove: () => void;
+  onAddChild: () => void;
+}) {
+  const isLeaf = depth >= 1 || (!node.children || node.children.length === 0);
 
   return (
     <div className={`rounded-xl border ${depth === 0 ? "border-gray-200 bg-white" : "border-blue-100 bg-blue-50/40"} p-4 space-y-3`}>
