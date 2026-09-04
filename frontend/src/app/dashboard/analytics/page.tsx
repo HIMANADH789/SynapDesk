@@ -141,8 +141,14 @@ export default function AnalyticsPage() {
 
       {/* Query log */}
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <div className="border-b border-gray-100 px-6 py-4">
+        <div className="border-b border-gray-100 px-6 py-4 flex items-center justify-between">
           <h2 className="font-semibold text-gray-900">Recent Queries</h2>
+          <a
+            href="/dashboard/logs"
+            className="text-xs font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-1"
+          >
+            Full Webhook &amp; Payload Inspector →
+          </a>
         </div>
         <div className="divide-y divide-gray-50">
           {logs.length === 0 ? (

@@ -45,6 +45,26 @@ export interface QueryLog {
   created_at: string;
 }
 
+export interface WebhookLog {
+  id: string;
+  client_id: string;
+  channel: string;
+  timestamp: string;
+  sender_id?: string;
+  sender_name?: string;
+  message_in?: string;
+  response_out?: string;
+  response_time_ms?: number;
+  status: string;
+  raw_payload?: any;
+  outgoing_payload?: any;
+  meta_status?: number;
+  meta_response?: any;
+  metadata?: Record<string, any>;
+  error?: string;
+  traceback?: string;
+}
+
 export interface User {
   email: string;
   client_id: string;

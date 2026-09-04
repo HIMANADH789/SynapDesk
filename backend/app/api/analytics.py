@@ -25,6 +25,29 @@ async def get_queries(page: int = 1, page_size: int = 20, user: dict = Depends(g
     return await analytics_service.get_query_logs(user["client_id"], page, page_size)
 
 
+@router.get("/webhook-logs")
+async def get_webhook_logs(
+    channel: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 25,
+    user: dict = Depends(get_current_user),
+):
+    """
+    Retrieve real-time request and webhook logs with full JSON payloads and metadata
+    for the logged-in institution.
+    """
+    return await analytics_service.get_webhook_logs(
+        client_id=user["client_id"],
+        channel=channel,
+        status=status,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
+
+
 # ── Super-admin endpoints ──────────────────────────────────────────────────────
 
 @router.get("/super-admin/overview")

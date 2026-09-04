@@ -262,3 +262,65 @@ async def get_query_logs(client_id: str, page: int = 1, page_size: int = 20) -> 
     logs = await cursor.to_list(length=page_size)
     total = await db[QUERY_LOGS].count_documents(match)
     return {"logs": logs, "total": total, "page": page, "page_size": page_size}
+
+
+async def get_webhook_logs(
+    client_id: str,
+    channel: str | None = None,
+    status: str | None = None,
+    search: str | None = None,
+    page: int = 1,
+    page_size: int = 25,
+) -> dict:
+    """
+    Retrieve comprehensive request, webhook, and response logs for monitoring.
+    Includes full raw incoming payload, outgoing payload, Meta API responses, and errors.
+    """
+    db = get_db()
+    skip = (page - 1) * page_size
+    match: dict = {"client_id": client_id}
+
+    if channel and channel != "all":
+        match["channel"] = channel
+
+    if status and status != "all":
+        if status == "errors":
+            match["status"] = {"$in": ["rag_error", "adapter_send_error", "meta_api_error", "signature_failed", "invalid_json"]}
+        elif status == "messages":
+            match["status"] = {"$in": ["response_sent", "message_received", "delivered", "ok"]}
+        elif status == "receipts":
+            match["status"] = {"$regex": "^receipt_"}
+        else:
+            match["status"] = status
+
+    if search and search.strip():
+        s = search.strip()
+        regex = {"$regex": s, "$options": "i"}
+        match["$or"] = [
+            {"message_in": regex},
+            {"response_out": regex},
+            {"sender_id": regex},
+            {"sender_name": regex},
+            {"status": regex},
+            {"error": regex},
+        ]
+
+    cursor = db["webhook_logs"].find(match).sort("timestamp", -1).skip(skip).limit(page_size)
+    logs = await cursor.to_list(length=page_size)
+    total = await db["webhook_logs"].count_documents(match)
+
+    serialized_logs = []
+    for log in logs:
+        item = dict(log)
+        if "_id" in item:
+            item["id"] = str(item.pop("_id"))
+        if item.get("timestamp") and hasattr(item["timestamp"], "isoformat"):
+            item["timestamp"] = item["timestamp"].isoformat()
+        serialized_logs.append(item)
+
+    return {
+        "logs": serialized_logs,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }

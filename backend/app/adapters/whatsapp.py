@@ -53,20 +53,7 @@ class WhatsAppAdapter(ChannelAdapter):
     ) -> Optional[NormalizedMessage]:
         """
         Parse Meta WhatsApp Cloud API payload.
-
-        Meta payload structure:
-        {
-          "object": "whatsapp_business_account",
-          "entry": [{
-            "changes": [{
-              "value": {
-                "metadata": {"phone_number_id": "..."},
-                "messages": [{"from": "...", "type": "text", "text": {"body": "..."}}],
-                "statuses": [...]   # delivery receipts — ignored
-              }
-            }]
-          }]
-        }
+        Supports text messages, interactive button replies, list replies, and quick replies.
         """
         if raw_data.get("object") != "whatsapp_business_account":
             return None
@@ -79,12 +66,26 @@ class WhatsAppAdapter(ChannelAdapter):
                     continue  # status update / delivery receipt
 
                 msg = messages[0]
-                if msg.get("type") != "text":
-                    continue  # skip media, location, etc.
+                msg_type = msg.get("type", "")
+                text = ""
 
-                text = msg.get("text", {}).get("body", "").strip()
+                if msg_type == "text":
+                    text = msg.get("text", {}).get("body", "").strip()
+                elif msg_type == "interactive":
+                    interactive = msg.get("interactive", {})
+                    # Button reply
+                    text = interactive.get("button_reply", {}).get("title", "")
+                    if not text:
+                        # List selection reply
+                        text = interactive.get("list_reply", {}).get("title", "")
+                elif msg_type == "button":
+                    text = msg.get("button", {}).get("text", "").strip()
+
                 sender = msg.get("from", "")
                 phone_number_id = value.get("metadata", {}).get("phone_number_id", "")
+                
+                contacts = value.get("contacts", [])
+                contact_name = contacts[0].get("profile", {}).get("name", "") if contacts else ""
 
                 if not text or not sender:
                     continue
@@ -97,11 +98,7 @@ class WhatsAppAdapter(ChannelAdapter):
                     metadata={
                         "phone_number_id": phone_number_id,
                         "message_id": msg.get("id", ""),
-                        "contact_name": (
-                            value.get("contacts", [{}])[0]
-                            .get("profile", {})
-                            .get("name", "")
-                        ),
+                        "contact_name": contact_name,
                     },
                 )
 
@@ -112,35 +109,68 @@ class WhatsAppAdapter(ChannelAdapter):
         msg: NormalizedMessage,
         response_text: str,
         config: dict,
-    ) -> None:
+    ) -> dict:
         """
         Send reply via Meta WhatsApp Cloud API.
-
         Endpoint: POST /v20.0/{phone_number_id}/messages
+        Returns dict with status, outgoing payload, and Meta API response.
         """
         phone_number_id = config.get("phone_number_id") or msg.metadata.get("phone_number_id")
         access_token = config.get("access_token", "")
 
+        # Guarantee non-empty text body (Meta Cloud API rejects empty string with 400 Bad Request)
+        clean_text = (response_text or "").strip()
+        if not clean_text:
+            clean_text = "Hello! How can I assist you today?"
+
         if not phone_number_id or not access_token:
             logger.error("WhatsApp send failed: missing phone_number_id or access_token for %s", msg.client_id)
-            return
+            return {
+                "status": "config_error",
+                "error": "Missing phone_number_id or access_token in institution settings",
+                "payload": None,
+                "meta_response": None,
+            }
 
         payload = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
             "to": msg.user_id,
             "type": "text",
-            "text": {"preview_url": False, "body": response_text},
+            "text": {"preview_url": False, "body": clean_text},
         }
 
-        async with httpx.AsyncClient(timeout=30) as http:
-            resp = await http.post(
-                f"{GRAPH_API}/{phone_number_id}/messages",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-            if not resp.is_success:
-                logger.error("WhatsApp API error %s: %s", resp.status_code, resp.text)
+        result = {
+            "status": "pending",
+            "payload": payload,
+            "meta_status": None,
+            "meta_response": None,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=30) as http:
+                resp = await http.post(
+                    f"{GRAPH_API}/{phone_number_id}/messages",
+                    headers={
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                result["meta_status"] = resp.status_code
+                try:
+                    result["meta_response"] = resp.json()
+                except Exception:
+                    result["meta_response"] = resp.text
+
+                if resp.is_success:
+                    result["status"] = "delivered"
+                else:
+                    result["status"] = "meta_api_error"
+                    logger.error("WhatsApp API error %s: %s", resp.status_code, resp.text)
+        except Exception as exc:
+            result["status"] = "network_error"
+            result["error"] = str(exc)
+            logger.exception("Failed to send WhatsApp message to %s: %s", msg.user_id, exc)
+
+        return result

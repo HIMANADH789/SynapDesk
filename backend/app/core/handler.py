@@ -54,13 +54,22 @@ async def handle_incoming(
     Process one normalized message end-to-end:
       1. Run RAG pipeline
       2. Send reply via the appropriate channel adapter
-      3. Return the response text
+      3. Log complete end-to-end metadata and JSON payloads for monitoring
+      4. Return the response text
     """
-    from app.services import rag_service
+    import time
+    import traceback
     from datetime import datetime, timezone
+    from app.services import rag_service
     db = get_db()
 
+    start_time = time.time()
     response_text = ""
+    status = "processing"
+    error_msg = None
+    tb_str = None
+    send_info = {}
+
     try:
         llm, embeddings, vectordb = await _build_providers()
 
@@ -71,55 +80,53 @@ async def handle_incoming(
             llm=llm,
             embeddings=embeddings,
             vectordb=vectordb,
-            channel=msg.channel,          # passed so query log includes channel
+            channel=msg.channel,
         )
         response_text = result.get("response", "Sorry, I could not process your request.")
 
     except Exception as exc:
-        import traceback
-        tb = traceback.format_exc()
+        tb_str = traceback.format_exc()
+        error_msg = str(exc)
+        status = "rag_error"
         logger.exception("RAG pipeline failed for %s / %s: %s", msg.client_id, msg.channel, exc)
-        response_text = "Sorry, I'm having trouble right now. Please try again later."
-        try:
-            await db["webhook_logs"].insert_one({
-                "client_id": msg.client_id,
-                "channel": msg.channel,
-                "timestamp": datetime.now(timezone.utc),
-                "status": "rag_error",
-                "error": str(exc),
-                "traceback": tb,
-            })
-        except Exception:
-            pass
+        response_text = "Sorry, I'm having trouble right now. Please try again in a moment."
 
     try:
         config = await get_client_platform_config(msg.client_id, msg.channel)
-        await adapter.send_response(msg, response_text, config)
-        try:
-            await db["webhook_logs"].insert_one({
-                "client_id": msg.client_id,
-                "channel": msg.channel,
-                "timestamp": datetime.now(timezone.utc),
-                "status": "response_sent",
-                "reply": response_text[:200],
-            })
-        except Exception:
-            pass
+        res = await adapter.send_response(msg, response_text, config)
+        if isinstance(res, dict):
+            send_info = res
+            status = res.get("status", "response_sent")
+        else:
+            status = "response_sent"
     except Exception as exc:
-        import traceback
-        tb = traceback.format_exc()
+        tb_str = traceback.format_exc()
+        error_msg = str(exc)
+        status = "adapter_send_error"
         logger.exception("Failed to send response via %s: %s", msg.channel, exc)
-        try:
-            await db["webhook_logs"].insert_one({
-                "client_id": msg.client_id,
-                "channel": msg.channel,
-                "timestamp": datetime.now(timezone.utc),
-                "status": "adapter_send_error",
-                "error": str(exc),
-                "traceback": tb,
-            })
-        except Exception:
-            pass
+
+    elapsed_ms = int((time.time() - start_time) * 1000)
+
+    try:
+        await db["webhook_logs"].insert_one({
+            "client_id": msg.client_id,
+            "channel": msg.channel,
+            "timestamp": datetime.now(timezone.utc),
+            "sender_id": msg.user_id,
+            "sender_name": msg.metadata.get("contact_name", ""),
+            "message_in": msg.message,
+            "response_out": response_text,
+            "response_time_ms": elapsed_ms,
+            "status": status,
+            "outgoing_payload": send_info.get("payload"),
+            "meta_status": send_info.get("meta_status"),
+            "meta_response": send_info.get("meta_response"),
+            "metadata": msg.metadata,
+            "error": error_msg,
+            "traceback": tb_str,
+        })
+    except Exception as log_exc:
+        logger.warning("Failed to record webhook log: %s", log_exc)
 
     return response_text
 

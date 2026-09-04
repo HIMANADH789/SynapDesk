@@ -50,11 +50,22 @@ export const api = {
 
   getQuota: () => request<{ remaining_daily: number }>("/chat/quota"),
 
-  // ── Analytics ────────────────────────────────────────────────────────────────
+  // ── Analytics & Monitoring ───────────────────────────────────────────────────
   getUsage: () => request<import("@/types").UsageStats>("/analytics/usage"),
   getChannelUsage: (channel: string) => request<import("@/types").ChannelStats>(`/analytics/channel/${channel}`),
   getQueries: (page = 1, pageSize = 20) =>
     request<{ logs: import("@/types").QueryLog[]; total: number; page: number }>(`/analytics/queries?page=${page}&page_size=${pageSize}`),
+  getWebhookLogs: (params: { page?: number; pageSize?: number; channel?: string; status?: string; search?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.page) q.append("page", String(params.page));
+    if (params.pageSize) q.append("page_size", String(params.pageSize));
+    if (params.channel) q.append("channel", params.channel);
+    if (params.status) q.append("status", params.status);
+    if (params.search) q.append("search", params.search);
+    return request<{ logs: import("@/types").WebhookLog[]; total: number; page: number; page_size: number }>(
+      `/analytics/webhook-logs?${q.toString()}`
+    );
+  },
 
   // ── Clients ──────────────────────────────────────────────────────────────────
   getMyProfile: () =>

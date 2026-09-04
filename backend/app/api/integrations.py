@@ -82,7 +82,7 @@ async def whatsapp_verify(
 @integrations_router.post("/{client_id}/whatsapp")
 async def whatsapp_webhook(client_id: str, request: Request, background_tasks: BackgroundTasks):
     """
-    Receive WhatsApp messages from Meta Cloud API.
+    Receive WhatsApp messages and event webhooks from Meta Cloud API.
     Multi-tenant: per-client webhook URL.
     """
     from datetime import datetime, timezone
@@ -93,8 +93,10 @@ async def whatsapp_webhook(client_id: str, request: Request, background_tasks: B
         "channel": "whatsapp",
         "timestamp": datetime.now(timezone.utc),
         "raw_payload": None,
-        "parse_result": None,
         "status": None,
+        "sender_id": None,
+        "sender_name": None,
+        "message_in": None,
         "error": None,
     }
 
@@ -127,22 +129,40 @@ async def whatsapp_webhook(client_id: str, request: Request, background_tasks: B
 
     adapter = _get_adapter(CHANNEL_WHATSAPP)
     msg = await adapter.parse_incoming(raw, client_id)
+
     if msg is None:
-        log_entry["status"] = "parse_returned_none"
-        log_entry["parse_result"] = "adapter.parse_incoming returned None — likely a status update, not a user message"
+        # Check if it's a delivery status update / receipt
+        status_info = None
+        for entry in raw.get("entry", []):
+            for change in entry.get("changes", []):
+                statuses = change.get("value", {}).get("statuses", [])
+                if statuses:
+                    status_info = statuses[0]
+                    break
+
+        if status_info:
+            log_entry["status"] = f"receipt_{status_info.get('status', 'update')}"
+            log_entry["sender_id"] = status_info.get("recipient_id")
+            log_entry["metadata"] = {
+                "message_id": status_info.get("id"),
+                "delivery_status": status_info.get("status"),
+                "timestamp": status_info.get("timestamp"),
+            }
+        else:
+            log_entry["status"] = "unhandled_event"
+            log_entry["error"] = "Webhook received non-message event (e.g., system alert or unsupported payload)"
+
         await db["webhook_logs"].insert_one(log_entry)
         return {"status": "ignored"}
 
-    log_entry["status"] = "ok"
-    log_entry["parse_result"] = {
-        "user_id": msg.user_id,
-        "message": msg.message,
-        "channel": msg.channel,
-        "client_id": msg.client_id,
-    }
+    log_entry["status"] = "message_received"
+    log_entry["sender_id"] = msg.user_id
+    log_entry["sender_name"] = msg.metadata.get("contact_name")
+    log_entry["message_in"] = msg.message
+    log_entry["metadata"] = msg.metadata
     await db["webhook_logs"].insert_one(log_entry)
 
-    # Fire-and-forget: RAG can take seconds, Meta expects 200 quickly
+    # Fire-and-forget: RAG can take a few moments, Meta expects 200 within 20s
     background_tasks.add_task(handle_incoming, msg, adapter)
     return {"status": "ok"}
 
