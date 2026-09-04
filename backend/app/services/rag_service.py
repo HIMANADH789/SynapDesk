@@ -641,6 +641,7 @@ async def query(
     await add_message(session_id, "user", message)
 
     client = await db[CLIENTS].find_one({"client_id": client_id})
+    cs = (client or {}).get("settings", {})
     system_prompt = DEFAULT_SYSTEM_PROMPT
     # Load pre-compiled client runtime profile snapshot (O(1) in-memory cache)
     from app.services.profile_compiler import get_compiled_profile
@@ -676,7 +677,23 @@ async def query(
         await add_message(session_id, "assistant", text)
         response_time = int((time.time() - start) * 1000)
         await _log_query(client_id, session_id, message, text, [], response_time, llm_response.model, llm_response.usage, channel=channel)
-        return {"response": text, "sources": [], "session_id": session_id}
+
+        from app.services.context_media_service import (
+            evaluate_menu_triggers,
+            evaluate_image_triggers,
+        )
+        menu_tree = profile.get("menu_tree", [])
+        context_imgs = profile.get("context_images", [])
+        matched_menu = await evaluate_menu_triggers(message, menu_tree, history, llm)
+        matched_images = await evaluate_image_triggers(message, "", context_imgs, history, llm)
+
+        return {
+            "response": text,
+            "sources": [],
+            "session_id": session_id,
+            "interactive_menu": matched_menu,
+            "context_images": matched_images,
+        }
 
     can_proceed = await _rate_limiter.acquire()
     if not can_proceed:
@@ -783,14 +800,14 @@ async def query_stream(
     await add_message(session_id, "user", message)
 
     client = await db[CLIENTS].find_one({"client_id": client_id})
+    cs = (client or {}).get("settings", {})
     system_prompt = DEFAULT_SYSTEM_PROMPT
-    max_history = 3
-    if client:
-        cs = client.get("settings", {})
-        if cs.get("system_prompt"):
-            system_prompt = cs["system_prompt"]
-        if cs.get("max_history_turns"):
-            max_history = cs["max_history_turns"]
+
+    from app.services.profile_compiler import get_compiled_profile
+    profile = await get_compiled_profile(client_id, channel)
+
+    system_prompt = profile.get("compiled_system_prompt") or DEFAULT_SYSTEM_PROMPT
+    max_history = cs.get("max_history_turns", 3) if cs else 3
 
     history = await get_history(session_id, max_turns=max_history)
 
@@ -826,17 +843,34 @@ async def query_stream(
         await add_message(session_id, "assistant", full_text)
         response_time = int((time.time() - start) * 1000)
         await _log_query(client_id, session_id, message, full_text, [], response_time, llm.get_model_name(), {}, channel=channel)
-        yield {"type": "done", "session_id": session_id, "sources": []}
+
+        from app.services.context_media_service import (
+            evaluate_menu_triggers,
+            evaluate_image_triggers,
+        )
+        menu_tree = profile.get("menu_tree", [])
+        context_imgs = profile.get("context_images", [])
+        matched_menu = await evaluate_menu_triggers(message, menu_tree, history, llm)
+        matched_images = await evaluate_image_triggers(message, "", context_imgs, history, llm)
+
+        yield {
+            "type": "done",
+            "session_id": session_id,
+            "sources": [],
+            "interactive_menu": matched_menu,
+            "context_images": matched_images,
+        }
         return
 
     can_proceed = await _rate_limiter.acquire()
     if not can_proceed:
         llm = _get_fallback_llm(llm)
 
-    # Context-Adaptive RAG settings
-    context_mode = _setup_cfg.get("context_mode") or cs.get("context_mode", "none")
-    context_instructions = _setup_cfg.get("context_instructions") or cs.get("context_instructions", "")
-    context_capacity = int(_setup_cfg.get("context_capacity") or cs.get("context_capacity", 4))
+    # Context-Adaptive RAG settings from compiled snapshot
+    ctx_cfg = profile.get("context_config", {})
+    context_mode = ctx_cfg.get("mode", "none")
+    context_instructions = ctx_cfg.get("instructions", "")
+    context_capacity = int(ctx_cfg.get("capacity", 4))
 
     # Resolve contextual query (resolves pronouns / follow-up fragments)
     search_query = await _resolve_contextual_query(
@@ -908,7 +942,22 @@ async def query_stream(
     if settings.CACHE_ENABLED and query_embedding_for_cache is not None and full_text != FALLBACK_MESSAGE and len(full_text) >= 20:
         await store_cache(client_id, search_query, query_embedding_for_cache, full_text, all_sources)
 
-    yield {"type": "done", "session_id": session_id, "sources": all_sources}
+    from app.services.context_media_service import (
+        evaluate_menu_triggers,
+        evaluate_image_triggers,
+    )
+    menu_tree = profile.get("menu_tree", [])
+    context_imgs = profile.get("context_images", [])
+    matched_menu = await evaluate_menu_triggers(message, menu_tree, history, llm)
+    matched_images = await evaluate_image_triggers(message, context, context_imgs, history, llm)
+
+    yield {
+        "type": "done",
+        "session_id": session_id,
+        "sources": all_sources,
+        "interactive_menu": matched_menu,
+        "context_images": matched_images,
+    }
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
