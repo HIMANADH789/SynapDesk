@@ -68,7 +68,7 @@ export default function SettingsPage() {
         system_prompt: s?.system_prompt ?? activeSetup?.system_prompt ?? DEFAULTS.system_prompt,
         theme_color: s?.theme_color ?? DEFAULTS.theme_color,
         max_history_turns: s?.max_history_turns ?? DEFAULTS.max_history_turns,
-        context_mode: (s?.context_mode && s?.context_mode !== "none") ? s.context_mode : (activeSetup?.context_mode ?? DEFAULTS.context_mode),
+        context_mode: s?.context_mode ?? activeSetup?.context_mode ?? DEFAULTS.context_mode,
         context_instructions: s?.context_instructions ?? activeSetup?.context_instructions ?? DEFAULTS.context_instructions,
         context_capacity: s?.context_capacity ?? activeSetup?.context_capacity ?? DEFAULTS.context_capacity,
         menu_options: s?.menu_options ?? DEFAULTS.menu_options,

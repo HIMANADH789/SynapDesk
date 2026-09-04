@@ -460,9 +460,7 @@ async def _resolve_contextual_query(
     Context-Adaptive RAG: resolves pronouns, elided subjects, and conversational context
     into a self-contained search query before vector retrieval.
     """
-    effective_mode = context_mode
-    if context_instructions and (effective_mode == "none" or not effective_mode):
-        effective_mode = "adaptive"
+    effective_mode = context_mode or "none"
 
     if effective_mode == "none" or not history or len(history) <= 1:
         return query
@@ -652,11 +650,18 @@ async def query(
     profile = await get_compiled_profile(client_id, channel)
     system_prompt = profile.get("compiled_system_prompt") or DEFAULT_SYSTEM_PROMPT
     ctx_cfg = profile.get("context_config", {})
-    context_capacity = int(ctx_cfg.get("capacity") or cs.get("context_capacity", 4))
-    configured_history = int(cs.get("max_history_turns", 3) or 3)
-    max_history = max(configured_history, context_capacity)
+    context_mode = ctx_cfg.get("mode") or cs.get("context_mode", "none")
+    raw_cap = ctx_cfg.get("capacity") if ctx_cfg.get("capacity") is not None else cs.get("context_capacity")
+    context_capacity = int(raw_cap) if raw_cap is not None else 4
 
-    history = await get_history(session_id, max_turns=max_history)
+    # If context is disabled ("none") or context capacity is 0, operate completely stateless
+    if context_mode == "none" or context_capacity <= 0:
+        max_history = 0
+        history = []
+    else:
+        configured_history = int(cs.get("max_history_turns", 3) or 3)
+        max_history = min(configured_history, context_capacity) if context_capacity > 0 else configured_history
+        history = await get_history(session_id, max_turns=max_history)
 
     # Session query limit
     from app.services.chat_service import count_session_queries
@@ -847,11 +852,18 @@ async def query_stream(
 
     system_prompt = profile.get("compiled_system_prompt") or DEFAULT_SYSTEM_PROMPT
     ctx_cfg = profile.get("context_config", {})
-    context_capacity = int(ctx_cfg.get("capacity") or cs.get("context_capacity", 4))
-    configured_history = int(cs.get("max_history_turns", 3) or 3)
-    max_history = max(configured_history, context_capacity)
+    context_mode = ctx_cfg.get("mode") or cs.get("context_mode", "none")
+    raw_cap = ctx_cfg.get("capacity") if ctx_cfg.get("capacity") is not None else cs.get("context_capacity")
+    context_capacity = int(raw_cap) if raw_cap is not None else 4
 
-    history = await get_history(session_id, max_turns=max_history)
+    # If context is disabled ("none") or context capacity is 0, operate completely stateless
+    if context_mode == "none" or context_capacity <= 0:
+        max_history = 0
+        history = []
+    else:
+        configured_history = int(cs.get("max_history_turns", 3) or 3)
+        max_history = min(configured_history, context_capacity) if context_capacity > 0 else configured_history
+        history = await get_history(session_id, max_turns=max_history)
 
     # Session query limit
     from app.services.chat_service import count_session_queries

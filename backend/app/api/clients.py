@@ -350,7 +350,7 @@ async def update_setup_config(client_id: str, channel: str, body: dict, user: di
     # Bidirectional sync: sync context, menu, and rules to root settings so Admin portal stays consistent
     shared_sync_keys = {"context_mode", "context_instructions", "context_capacity", "menu_tree", "context_images", "descriptive_rules"}
     for k in shared_sync_keys:
-        if k in current and current[k]:
+        if k in current and current[k] is not None:
             update_dict[f"settings.{k}"] = current[k]
 
     await db[CLIENTS].update_one(
@@ -359,16 +359,14 @@ async def update_setup_config(client_id: str, channel: str, body: dict, user: di
         upsert=True,
     )
 
-    # Invalidate and recompile runtime profile snapshots
+    # Invalidate and recompile runtime profile snapshots across all channels
     from app.services.profile_compiler import invalidate_client_profile, compile_client_profile
-    invalidate_client_profile(client_id, channel)
-    invalidate_client_profile(client_id, "widget")
-    try:
-        await compile_client_profile(client_id, channel)
-        if channel != "widget":
-            await compile_client_profile(client_id, "widget")
-    except Exception as e:
-        logger.debug("Async profile recompile on setup update: %s", e)
+    invalidate_client_profile(client_id)
+    for ch in ALL_SETUPS:
+        try:
+            await compile_client_profile(client_id, ch)
+        except Exception as e:
+            logger.debug("Async profile recompile on setup update (%s): %s", ch, e)
 
     return {"message": f"{channel} config updated"}
 

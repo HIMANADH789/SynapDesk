@@ -90,9 +90,7 @@ def _build_compiled_system_prompt(
         sections.append("\n" + "\n".join(rules_text))
 
     # 3. Context Carrying & Adaptive Guidelines
-    effective_mode = context_mode
-    if context_instructions and (effective_mode == "none" or not effective_mode):
-        effective_mode = "adaptive"
+    effective_mode = context_mode or "none"
 
     if effective_mode in ("adaptive", "full") and context_instructions:
         sections.append(
@@ -141,9 +139,8 @@ async def compile_client_profile(client_id: str, channel: str = "widget") -> dic
     # Context RAG settings
     context_mode = setup_cfg.get("context_mode") or settings.get("context_mode", "none")
     context_instructions = setup_cfg.get("context_instructions") or settings.get("context_instructions", "")
-    context_capacity = int(setup_cfg.get("context_capacity") or settings.get("context_capacity", 4))
-    if context_instructions and (context_mode == "none" or not context_mode):
-        context_mode = "adaptive"
+    raw_cap = setup_cfg.get("context_capacity") if setup_cfg.get("context_capacity") is not None else settings.get("context_capacity")
+    context_capacity = int(raw_cap) if raw_cap is not None else 4
 
     # Build compiled system prompt
     compiled_prompt = _build_compiled_system_prompt(
