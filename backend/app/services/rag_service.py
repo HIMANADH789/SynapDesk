@@ -460,7 +460,11 @@ async def _resolve_contextual_query(
     Context-Adaptive RAG: resolves pronouns, elided subjects, and conversational context
     into a self-contained search query before vector retrieval.
     """
-    if context_mode == "none" or not history or len(history) <= 1:
+    effective_mode = context_mode
+    if context_instructions and (effective_mode == "none" or not effective_mode):
+        effective_mode = "adaptive"
+
+    if effective_mode == "none" or not history or len(history) <= 1:
         return query
 
     # Trim history to context_capacity turns (each turn has user+assistant = 2 msgs)
@@ -469,7 +473,7 @@ async def _resolve_contextual_query(
         return query
 
     # In adaptive mode, check if rewrite is needed (pronoun / fragment / elision)
-    if context_mode == "adaptive":
+    if effective_mode == "adaptive":
         lower = query.lower().strip()
         pronoun_triggers = {
             "it", "its", "they", "them", "their", "theirs", "this", "that", "these", "those",
@@ -646,9 +650,11 @@ async def query(
     # Load pre-compiled client runtime profile snapshot (O(1) in-memory cache)
     from app.services.profile_compiler import get_compiled_profile
     profile = await get_compiled_profile(client_id, channel)
-
     system_prompt = profile.get("compiled_system_prompt") or DEFAULT_SYSTEM_PROMPT
-    max_history = cs.get("max_history_turns", 3) if cs else 3
+    ctx_cfg = profile.get("context_config", {})
+    context_capacity = int(ctx_cfg.get("capacity") or cs.get("context_capacity", 4))
+    configured_history = int(cs.get("max_history_turns", 3) or 3)
+    max_history = max(configured_history, context_capacity)
 
     history = await get_history(session_id, max_turns=max_history)
 
@@ -730,10 +736,43 @@ async def query(
     all_sources, top_candidates = await _retrieve_and_rerank(client_id, search_query, llm, embeddings, vectordb)
 
     if not top_candidates:
-        await add_message(session_id, "assistant", FALLBACK_MESSAGE)
+        logger.info("No vector document chunks found for query '%s'. Generating front-desk guidance via LLM.", search_query)
+        await _rate_limiter.acquire()
+        guidance_prompt = f"""{history_text}
+User message: {message}
+
+Instructions:
+1. You are the AI Front Desk Assistant for this institution. Follow your system prompt persona, responsibilities, and tone.
+2. If the user introduces themselves (e.g. gives their name, qualification, or educational background) or asks for career guidance, courses, or general information, address them warmly by name if provided, introduce the relevant programs offered (e.g. CA, CMA, ACCA, CS, B.Com), and explain how they can get started.
+3. If they asked for specific verified facts (such as exact rupee fee structures or official registration dates) that require official document verification and none are available, provide a helpful general overview of the program and invite them to speak with the administrative desk for the latest official fee schedules.
+4. Keep the response concise, mobile-friendly (use clean bullet points if listing courses), and end with an engaging next-step question.
+5. Output ONLY the direct response. Do NOT output thinking tags (<think>...</think>) or internal reasoning."""
+
+        llm_response = await llm.generate(guidance_prompt, system_prompt=system_prompt, temperature=0.3, max_tokens=1024)
+        text = _clean_markdown(llm_response.text)
+        if not text or len(text.strip()) == 0:
+            text = FALLBACK_MESSAGE
+
+        await add_message(session_id, "assistant", text)
         response_time = int((time.time() - start) * 1000)
-        await _log_query(client_id, session_id, message, FALLBACK_MESSAGE, [], response_time, llm.get_model_name(), {}, channel=channel)
-        return {"response": FALLBACK_MESSAGE, "sources": [], "session_id": session_id}
+        await _log_query(client_id, session_id, message, text, [], response_time, llm_response.model, llm_response.usage, channel=channel)
+
+        from app.services.context_media_service import (
+            evaluate_menu_triggers,
+            evaluate_image_triggers,
+        )
+        menu_tree = profile.get("menu_tree", [])
+        context_imgs = profile.get("context_images", [])
+        matched_menu = await evaluate_menu_triggers(message, menu_tree, history, llm)
+        matched_images = await evaluate_image_triggers(message, "", context_imgs, history, llm)
+
+        return {
+            "response": text,
+            "sources": [],
+            "session_id": session_id,
+            "interactive_menu": matched_menu,
+            "context_images": matched_images,
+        }
 
     # Enhancement 1: clarification check
     clarification = await _check_clarification(search_query, top_candidates, llm, history=history)
@@ -807,7 +846,10 @@ async def query_stream(
     profile = await get_compiled_profile(client_id, channel)
 
     system_prompt = profile.get("compiled_system_prompt") or DEFAULT_SYSTEM_PROMPT
-    max_history = cs.get("max_history_turns", 3) if cs else 3
+    ctx_cfg = profile.get("context_config", {})
+    context_capacity = int(ctx_cfg.get("capacity") or cs.get("context_capacity", 4))
+    configured_history = int(cs.get("max_history_turns", 3) or 3)
+    max_history = max(configured_history, context_capacity)
 
     history = await get_history(session_id, max_turns=max_history)
 
@@ -900,11 +942,48 @@ async def query_stream(
     all_sources, top_candidates = await _retrieve_and_rerank(client_id, search_query, llm, embeddings, vectordb)
 
     if not top_candidates:
-        await add_message(session_id, "assistant", FALLBACK_MESSAGE)
+        logger.info("No vector document chunks found for query '%s'. Streaming front-desk guidance via LLM.", search_query)
+        await _rate_limiter.acquire()
+        guidance_prompt = f"""{history_text}
+User message: {message}
+
+Instructions:
+1. You are the AI Front Desk Assistant for this institution. Follow your system prompt persona, responsibilities, and tone.
+2. If the user introduces themselves (e.g. gives their name, qualification, or educational background) or asks for career guidance, courses, or general information, address them warmly by name if provided, introduce the relevant programs offered (e.g. CA, CMA, ACCA, CS, B.Com), and explain how they can get started.
+3. If they asked for specific verified facts (such as exact rupee fee structures or official registration dates) that require official document verification and none are available, provide a helpful general overview of the program and invite them to speak with the administrative desk for the latest official fee schedules.
+4. Keep the response concise, mobile-friendly (use clean bullet points if listing courses), and end with an engaging next-step question.
+5. Output ONLY the direct response. Do NOT output thinking tags (<think>...</think>) or internal reasoning."""
+
+        full_text = ""
+        raw_gen = llm.generate_stream(guidance_prompt, system_prompt=system_prompt, temperature=0.3, max_tokens=1024)
+        async for chunk in _filter_thinking_stream(raw_gen):
+            full_text += chunk
+            yield {"type": "token", "text": chunk}
+        full_text = _clean_markdown(full_text)
+        if not full_text:
+            full_text = FALLBACK_MESSAGE
+            yield {"type": "token", "text": FALLBACK_MESSAGE}
+
+        await add_message(session_id, "assistant", full_text)
         response_time = int((time.time() - start) * 1000)
-        await _log_query(client_id, session_id, message, FALLBACK_MESSAGE, [], response_time, llm.get_model_name(), {}, channel=channel)
-        yield {"type": "token", "text": FALLBACK_MESSAGE}
-        yield {"type": "done", "session_id": session_id, "sources": []}
+        await _log_query(client_id, session_id, message, full_text, [], response_time, llm.get_model_name(), {}, channel=channel)
+
+        from app.services.context_media_service import (
+            evaluate_menu_triggers,
+            evaluate_image_triggers,
+        )
+        menu_tree = profile.get("menu_tree", [])
+        context_imgs = profile.get("context_images", [])
+        matched_menu = await evaluate_menu_triggers(message, menu_tree, history, llm)
+        matched_images = await evaluate_image_triggers(message, "", context_imgs, history, llm)
+
+        yield {
+            "type": "done",
+            "session_id": session_id,
+            "sources": [],
+            "interactive_menu": matched_menu,
+            "context_images": matched_images,
+        }
         return
 
     # Enhancement 1: clarification check

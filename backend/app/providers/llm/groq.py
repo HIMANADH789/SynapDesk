@@ -10,7 +10,7 @@ class GroqProvider(LLMProvider):
     def __init__(
         self,
         api_key: str,
-        model: str = "llama-3.3-70b-versatile",
+        model: str = "qwen/qwen3.6-27b",
     ):
         self._api_key = api_key
         self._model = model

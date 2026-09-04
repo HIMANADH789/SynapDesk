@@ -90,11 +90,19 @@ def _build_compiled_system_prompt(
         sections.append("\n" + "\n".join(rules_text))
 
     # 3. Context Carrying & Adaptive Guidelines
-    if context_mode in ("adaptive", "full") and context_instructions:
+    effective_mode = context_mode
+    if context_instructions and (effective_mode == "none" or not effective_mode):
+        effective_mode = "adaptive"
+
+    if effective_mode in ("adaptive", "full") and context_instructions:
         sections.append(
-            f"\nCONTEXT MEMORY GUIDELINES:\n"
-            f"Mode: {context_mode.upper()}\n"
-            f"Preserve and track these entities across turns: {context_instructions}"
+            f"\n### CONTEXT MEMORY & CONVERSATIONAL CONTINUITY (MANDATORY):\n"
+            f"- Tracking Mode: {effective_mode.upper()}\n"
+            f"- Information to actively collect, remember, and carry across all conversation turns: {context_instructions}.\n"
+            f"- Explicit Guidelines:\n"
+            f"  1. When the user introduces themselves (e.g. provides their name, qualification, or educational background), warmly acknowledge it and address them by their name in this and subsequent responses.\n"
+            f"  2. Retain this context across all follow-up questions without asking them to repeat themselves.\n"
+            f"  3. Tailor all course recommendations, career pathways, and next steps to their specific background and interests."
         )
 
     return "\n\n".join(sections)
@@ -134,6 +142,8 @@ async def compile_client_profile(client_id: str, channel: str = "widget") -> dic
     context_mode = setup_cfg.get("context_mode") or settings.get("context_mode", "none")
     context_instructions = setup_cfg.get("context_instructions") or settings.get("context_instructions", "")
     context_capacity = int(setup_cfg.get("context_capacity") or settings.get("context_capacity", 4))
+    if context_instructions and (context_mode == "none" or not context_mode):
+        context_mode = "adaptive"
 
     # Build compiled system prompt
     compiled_prompt = _build_compiled_system_prompt(
